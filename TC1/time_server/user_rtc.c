@@ -1,3 +1,4 @@
+#include "memory_diag.h"
 #include "http_server/web_log.h"
 #include "main.h"
 #include "status_guard.h"
@@ -9,6 +10,7 @@ void RtcThread(mico_thread_arg_t arg);
 
 OSStatus UserSntpGetTime()
 {
+    tc1_diag_event(TC1_DIAG_NTP_START);
     OSStatus err = kNoErr;
     ntp_timestamp_t current_time;
 
@@ -52,13 +54,13 @@ OSStatus UserSntpGetTime()
     if (err != kNoErr)
     {
         rtc_log("sntp_get_time4 err[%d]", err);
-        return err;
+        tc1_diag_event(TC1_DIAG_NTP_ERROR);return err;
     }
 
     mico_utc_time_ms_t utc_time_ms = (uint64_t)current_time.seconds * (uint64_t)1000
         + (current_time.microseconds / 1000);
     mico_time_set_utc_time_ms(&utc_time_ms);
-    return kNoErr;
+    tc1_diag_event(TC1_DIAG_NTP_OK);return kNoErr;
 }
 
 OSStatus UserRtcInit(void)

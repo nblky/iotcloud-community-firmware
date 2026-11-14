@@ -1,0 +1,53 @@
+--- a/platform/GCC/mem_newlib.c
++++ b/platform/GCC/mem_newlib.c
+@@ -105,38 +105,44 @@
+ #if defined (MOC) && ( MOC == 1 )
+ #include "moc_api.h"
+ extern mico_api_t *lib_api_p;
++extern void tc1_diag_alloc(void *,size_t,unsigned int);
++extern void tc1_diag_free(void *);
++extern void *tc1_diag_realloc(void *,size_t,unsigned int,void *(*)(void *,size_t));
+ 
+ void * __wrap_malloc (size_t size)
+ {
+-	return lib_api_p->malloc(size);
++	void *result=lib_api_p->malloc(size);
++    tc1_diag_alloc(result,size,(unsigned int)__builtin_return_address(0));return result;
+ }
+ 
+ void * __wrap__malloc_r (void *p, size_t size)
+ {
+ 	
+-	return lib_api_p->malloc(size);
++	void *result=lib_api_p->malloc(size);
++    tc1_diag_alloc(result,size,(unsigned int)__builtin_return_address(0));return result;
+ }
+ 
+ void __wrap_free (void *pv)
+ {
+-	lib_api_p->free(pv);
++	tc1_diag_free(pv);lib_api_p->free(pv);
+ }
+ 
+ 
+ void * __wrap_calloc (size_t a, size_t b)
+ {
+-	return lib_api_p->calloc(a, b);
++	void *result=lib_api_p->calloc(a,b);
++    tc1_diag_alloc(result,a*b,(unsigned int)__builtin_return_address(0));return result;
+ }
+ 
+ void * __wrap_realloc (void* pv, size_t size)
+ {
+-	return lib_api_p->realloc(pv, size);
++	return tc1_diag_realloc(pv,size,(unsigned int)__builtin_return_address(0),lib_api_p->realloc);
+ }
+ 
+ 
+ void __wrap__free_r (void *p, void *x)
+ {
+-  lib_api_p->free(x);
++  tc1_diag_free(x);lib_api_p->free(x);
+ }
+ 
+ void* __wrap__realloc_r (void *p, void* x, size_t sz)

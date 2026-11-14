@@ -1,3 +1,4 @@
+#include "memory_diag.h"
 #include "user_wifi.h"
 #include "status_guard.h"
 
@@ -72,6 +73,8 @@ static void WifiGetIpCallback(IPStatusTypedef *pnet, void * arg)
 //wifi杩炴帴鐘舵€佹敼鍙樺洖璋?
 static void WifiStatusCallback(WiFiEvent status, void* arg)
 {
+    if(status==NOTIFY_STATION_UP)tc1_diag_event(TC1_DIAG_WIFI_UP);
+    if(status==NOTIFY_STATION_DOWN)tc1_diag_event(TC1_DIAG_WIFI_DOWN);
     if (status == NOTIFY_STATION_UP) //wifi杩炴帴鎴愬姛
     {
         //user_config->last_wifi_status = status;
@@ -122,7 +125,7 @@ OSStatus WifiScanStart(void) {
     mico_rtos_lock_mutex(&scan_lock);
     if(scan_busy){mico_rtos_unlock_mutex(&scan_lock);return kNoErr;}
     scan_busy=true;scan_count=0;mico_time_get_time(&scan_started);mico_rtos_unlock_mutex(&scan_lock);
-    micoWlanStartScanAdv();return kNoErr;
+    tc1_diag_event(TC1_DIAG_SCAN_START);micoWlanStartScanAdv();return kNoErr;
 }
 bool WifiScanMp(ph_writer *out) {
     mico_rtos_lock_mutex(&scan_lock);
@@ -136,6 +139,7 @@ bool WifiScanMp(ph_writer *out) {
     phw_end(out);phw_end(out);mico_rtos_unlock_mutex(&scan_lock);return !out->failed;
 }
 void WifiScanCallback(ScanResult_adv *result,void *arg) {
+    tc1_diag_event(TC1_DIAG_SCAN_DONE);
     if(!result)return;
     bool boot_scan=wifi_boot_scan_pending;wifi_boot_scan_pending=false;
     for(int i=0;i<result->ApNum;++i)if(WifiHasSavedConfig() && !strncmp(result->ApList[i].ssid,sys_config->micoSystemConfig.ssid,sizeof(result->ApList[i].ssid)))wifi_saved_ssid_seen=true;
