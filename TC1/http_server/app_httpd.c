@@ -132,10 +132,11 @@ static ph_http_action begin(ph_http_exchange *x)
     bool ota=route_matches(r->path,"/api/v1/ota/upload") || route_matches(r->path,"/api/v1/ota/upload-unsigned");
     bool memory=route_matches(r->path,"/api/v1/memory"),trace=route_matches(r->path,"/api/v1/http-trace");
     bool heap_diag=route_matches(r->path,"/api/v1/heap-diag");
+    bool rx_diag=route_matches(r->path,"/api/v1/rx-diag");
     bool net_diag=route_matches(r->path,"/api/v1/net-diag");
     bool mqtt_diag=route_matches(r->path,"/api/v1/mqtt-diag");
     /* TC1 historically selects an actual route before OPTIONS/authentication. */
-    if(!auth && !query_action && !asset && !command && !backup && !restore && !ota && !memory && !trace && !heap_diag && !net_diag && !mqtt_diag) {
+    if(!auth && !query_action && !asset && !command && !backup && !restore && !ota && !memory && !trace && !heap_diag && !net_diag && !rx_diag && !mqtt_diag) {
         ph_http_message(&product,x,404,"not_found");return PH_HTTP_REPLY;
     }
     x->response.cors=phicomm_cors_headers(r->origin);
@@ -162,12 +163,14 @@ static ph_http_action begin(ph_http_exchange *x)
         x->response.suppress_body=!strcmp(r->method,"HEAD");
         if(query_action) { operation=QUERY;return prepare(x); }
         if(memory) { memory_response(x);return PH_HTTP_REPLY; }
-        if(heap_diag || net_diag || mqtt_diag) {
+        if(heap_diag || net_diag || rx_diag || mqtt_diag) {
             ph_writer w;ph_buf fixed;
             phw_init_fixed(&w,PH_WIRE_MSGPACK,&fixed,product.scalar,sizeof(product.scalar));
-            if(heap_diag){
+            if(heap_diag || rx_diag){
                 const char *cursor=strstr(r->path,"?after=");
-                tc1_heap_diag_mp(&w,cursor?(uint32_t)strtoul(cursor+7,NULL,0):0);
+                uint32_t after=cursor?(uint32_t)strtoul(cursor+7,NULL,0):0;
+                if(rx_diag)tc1_rx_diag_mp(&w,after);
+                else tc1_heap_diag_mp(&w,after);
             }else if(net_diag)tc1_net_diag_mp(&w);
             else{
                 phw_begin(&w,NULL,false);phw_text(&w,"code","ok");phw_begin(&w,"data",false);

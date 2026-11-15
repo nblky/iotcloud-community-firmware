@@ -9,6 +9,10 @@
 #define ALLOCATED 0x80000000u
 #define HEAP_ROWS 16u
 #define TCP_ROWS 16u
+#define RX_ROWS 2u
+#define RX_WORDS 88u
+#define BYTE(a) (*(volatile const unsigned char *)(uintptr_t)(a))
+#define HALF(a) (*(volatile const uint16_t *)(uintptr_t)(a))
 static struct { uint32_t count, last_ms; } events[TC1_DIAG_EVENTS];
 #define LIVE_ROWS 128u
 typedef struct { uint32_t pointer, bytes, caller, since; } live_record;
@@ -86,14 +90,70 @@ static void numbers(ph_writer *w,const char *key,const uint32_t *v,unsigned n)
     phw_end(w);
 }
 
-void tc1_heap_diag_mp(ph_writer *w,uint32_t after)
+static uint32_t allocation_size(uint32_t p,uint32_t minimum);
+
+/* Only known kernel object layouts are exported, never packet contents.
+ * Called with IRQs disabled, so slot ownership and timer fields agree. */
+static unsigned rx_object(uint32_t p,uint32_t size,uint32_t *row)
+{
+    row[1]=p;row[2]=size;
+    if(size==1608 && WORD(p+4)==p+16 && BYTE(p+12)==3){
+        row[0]=1;row[3]=WORD(p);row[4]=WORD(p+4);
+        row[5]=HALF(p+8);row[6]=HALF(p+10);
+        row[7]=BYTE(p+12);row[8]=BYTE(p+13);row[9]=HALF(p+14);
+        return 10;
+    }
+    if(size>=80 && size<=96 && BYTE(p+40)==2){
+        uint32_t buffer=WORD(p+24),rxpd=WORD(p+28);
+        if(allocation_size(buffer,1596)==1608 &&
+           WORD(buffer+4)==buffer+16 && BYTE(buffer+12)==3 &&
+           WORD(p+20)==buffer+16 && allocation_size(rxpd,20)){
+            row[0]=2;row[3]=WORD(p+16);row[4]=WORD(p+20);
+            row[5]=buffer;row[6]=rxpd;row[7]=WORD(p+32);
+            row[8]=WORD(p+36);row[9]=BYTE(p+40);
+            row[10]=HALF(buffer+14);row[11]=allocation_size(rxpd,20);
+            return 12;
+        }
+    }
+    /* Reorder entries request 60 bytes; small unsplit heap tails can add 16. */
+    if(size>=72 && size<=88 && WORD(p+44)==p && WORD(p+8)<16){
+        uint32_t count=WORD(p+28),array=WORD(p+32),timer=WORD(p+36);
+        if(!count || count>64 || !allocation_size(array,count*4))return 0;
+        row[0]=3;row[3]=WORD(p+8);row[4]=WORD(p+20);
+        row[5]=WORD(p+24);row[6]=count;row[7]=array;row[8]=timer;
+        row[9]=BYTE(p+40);row[10]=WORD(p+48);
+        row[11]=row[12]=row[13]=row[14]=row[15]=row[16]=row[17]=0;
+        /* Actual xTimerIsTimerActive reads container at +20; ID is +32.
+         * Do not call RTOS timer functions while holding the IRQ snapshot. */
+        if(allocation_size(timer,40) && WORD(timer+32)==p+36 &&
+           (WORD(timer+36)&~1u)==0x1f040164u){
+            row[11]=1;row[12]=WORD(timer+20)!=0;
+            row[13]=WORD(timer+24);row[14]=WORD(timer+4);
+            row[15]=WORD(timer+32);row[16]=WORD(timer+36);
+            row[17]=WORD(timer+20);
+        }
+        row[18]=WORD(p);row[19]=WORD(p+4);row[20]=0;
+        for(unsigned i=0;i<count;i++){
+            row[21+i]=WORD(array+4*i);
+            if(row[21+i])row[20]++;
+        }
+        return 21+count;
+    }
+    return 0;
+}
+
+static void heap_diag_mp(ph_writer *w,uint32_t after,bool rx)
 {
     /* Snapshot headers while scheduling is disabled; encode after restoring IRQs.
      * Regions are the allocator's actual descriptors, not guessed heap bounds. */
-    uint32_t rows[HEAP_ROWS][10],regions[6]={0},hist[12]={0};
+    uint32_t rows[HEAP_ROWS][10],rx_rows[RX_ROWS][RX_WORDS],rx_lengths[RX_ROWS];
+    uint32_t regions[6]={0},hist[12]={0},rx_count=0;
     uint32_t n=0,blocks=0,free_sum=0,used_sum=0,largest=0,next=0;
     uint32_t total=0,free_bytes=0,minimum=0,bad=0;
-    bool supported=kernel_matches(),ok=supported;
+    bool supported=kernel_matches() && (!rx ||
+        (WORD(0x1f03ae2cu)==0x4606b5f8u &&
+         WORD(0x1f0403f0u)==0x4ff8e92du &&
+         WORD(0x1f006f78u)==0x4604b510u)),ok=supported;
     uint32_t mask=irq_lock();
     if(supported){
         total=WORD(0x00103990u);free_bytes=WORD(0x00104848u);
@@ -117,7 +177,19 @@ void tc1_heap_diag_mp(ph_writer *w,uint32_t after)
                     unsigned bucket=0;uint32_t bound=16;
                     while(size>bound && bucket<11){bucket++;bound*=2;}
                     hist[bucket]++;
-                    if(p+8>after){
+                    if(rx){
+                        uint32_t candidate[RX_WORDS];
+                        unsigned length=rx_object(p+8,size,candidate);
+                        if(length){
+                            rx_count++;
+                            if(p+8>after){
+                                if(n<RX_ROWS){
+                                    memcpy(rx_rows[n],candidate,length*sizeof(uint32_t));
+                                    rx_lengths[n++]=length;
+                                }else if(!next)next=rx_rows[n-1][1];
+                            }
+                        }
+                    }else if(p+8>after){
                         if(n<HEAP_ROWS){
                             uint32_t *row=rows[n++],hash=2166136261u;
                             row[0]=p+8;row[1]=size;
@@ -156,11 +228,19 @@ void tc1_heap_diag_mp(ph_writer *w,uint32_t after)
     phw_u32(w,"tracker_overflow",live_overflow);
     phw_u32(w,"alloc_calls",alloc_calls);phw_u32(w,"free_calls",free_calls);
     phw_u32(w,"tracker_bytes",sizeof(live));
+    if(rx){phw_u32(w,"schema",1);phw_u32(w,"rx_objects",rx_count);}
     numbers(w,"regions",regions,6);numbers(w,"histogram",hist,12);
     phw_begin(w,"rows",true);
-    for(unsigned i=0;i<n;i++)numbers(w,NULL,rows[i],10);
+    for(unsigned i=0;i<n;i++)
+        if(rx)numbers(w,NULL,rx_rows[i],rx_lengths[i]);
+        else numbers(w,NULL,rows[i],10);
     phw_end(w);phw_end(w);phw_end(w);
 }
+
+void tc1_heap_diag_mp(ph_writer *w,uint32_t after)
+{ heap_diag_mp(w,after,false); }
+void tc1_rx_diag_mp(ph_writer *w,uint32_t after)
+{ heap_diag_mp(w,after,true); }
 
 static uint32_t allocation_size(uint32_t p,uint32_t minimum)
 {
