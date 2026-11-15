@@ -133,10 +133,11 @@ static ph_http_action begin(ph_http_exchange *x)
     bool memory=route_matches(r->path,"/api/v1/memory"),trace=route_matches(r->path,"/api/v1/http-trace");
     bool heap_diag=route_matches(r->path,"/api/v1/heap-diag");
     bool rx_diag=route_matches(r->path,"/api/v1/rx-diag");
+    bool ram_diag=route_matches(r->path,"/api/v1/ram-diag");
     bool net_diag=route_matches(r->path,"/api/v1/net-diag");
     bool mqtt_diag=route_matches(r->path,"/api/v1/mqtt-diag");
     /* TC1 historically selects an actual route before OPTIONS/authentication. */
-    if(!auth && !query_action && !asset && !command && !backup && !restore && !ota && !memory && !trace && !heap_diag && !net_diag && !rx_diag && !mqtt_diag) {
+    if(!auth && !query_action && !asset && !command && !backup && !restore && !ota && !memory && !trace && !heap_diag && !net_diag && !rx_diag && !ram_diag && !mqtt_diag) {
         ph_http_message(&product,x,404,"not_found");return PH_HTTP_REPLY;
     }
     x->response.cors=phicomm_cors_headers(r->origin);
@@ -163,10 +164,22 @@ static ph_http_action begin(ph_http_exchange *x)
         x->response.suppress_body=!strcmp(r->method,"HEAD");
         if(query_action) { operation=QUERY;return prepare(x); }
         if(memory) { memory_response(x);return PH_HTTP_REPLY; }
-        if(heap_diag || net_diag || rx_diag || mqtt_diag) {
+        if(heap_diag || net_diag || rx_diag || ram_diag || mqtt_diag) {
             ph_writer w;ph_buf fixed;
             phw_init_fixed(&w,PH_WIRE_MSGPACK,&fixed,product.scalar,sizeof(product.scalar));
-            if(heap_diag || rx_diag){
+            if(ram_diag){
+                const char *q=strchr(r->path,'?');char *end;
+                uint32_t address=0,length=0;
+                if(q && !strncmp(q,"?address=",9)){
+                    address=(uint32_t)strtoul(q+9,&end,0);
+                    if(end!=q+9 && !strncmp(end,"&length=",8)){
+                        const char *start=end+8;
+                        length=(uint32_t)strtoul(start,&end,0);
+                        if(end==start || *end)length=0;
+                    }
+                }
+                tc1_ram_diag_mp(&w,address,length);
+            }else if(heap_diag || rx_diag){
                 const char *cursor=strstr(r->path,"?after=");
                 uint32_t after=cursor?(uint32_t)strtoul(cursor+7,NULL,0):0;
                 if(rx_diag)tc1_rx_diag_mp(&w,after);

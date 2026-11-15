@@ -242,6 +242,37 @@ void tc1_heap_diag_mp(ph_writer *w,uint32_t after)
 void tc1_rx_diag_mp(ph_writer *w,uint32_t after)
 { heap_diag_mp(w,after,true); }
 
+/* Read-only, per-chunk atomic RAM capture for offline ownership analysis.
+ * Separate chunks are not a globally frozen snapshot. Keep copies on the
+ * caller's stack rather than reserving another permanent diagnostic buffer. */
+void tc1_ram_diag_mp(ph_writer *w,uint32_t address,uint32_t length)
+{
+    unsigned char bytes[512];
+    uint32_t ms=0,free_bytes=0;
+    bool supported=kernel_matches(),valid=false;
+    uint32_t mask=irq_lock();
+    if(supported && length && length<=sizeof(bytes)){
+        uint32_t base=WORD(0x00104838u),size=WORD(0x0010483cu);
+        valid=(address>=0x00100000u && address<(uint32_t)&_ram_end_ &&
+               length<=(uint32_t)&_ram_end_-address) ||
+              (ram(base&~3u,size+(base&3u)) && address>=base &&
+               address-base<size && length<=size-(address-base));
+        if(valid){
+            for(unsigned i=0;i<length;i++)bytes[i]=BYTE(address+i);
+            ms=mico_rtos_get_time();free_bytes=WORD(0x00104848u);
+        }
+    }
+    irq_unlock(mask);
+    phw_begin(w,NULL,false);
+    phw_text(w,"code",valid?"ok":"invalid_request");
+    phw_begin(w,"data",false);phw_bool(w,"supported",supported);
+    if(valid){
+        phw_u32(w,"address",address);phw_u32(w,"ms",ms);
+        phw_u32(w,"free",free_bytes);phw_bytes_value(w,"bytes",bytes,length);
+    }
+    phw_end(w);phw_end(w);
+}
+
 static uint32_t allocation_size(uint32_t p,uint32_t minimum)
 {
     if(p<8 || !ram(p-8,minimum+8))return 0;

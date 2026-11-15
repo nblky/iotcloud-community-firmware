@@ -7,6 +7,7 @@ enum { TC1_DIAG_WIFI_UP, TC1_DIAG_WIFI_DOWN, TC1_DIAG_SCAN_START,
 void tc1_diag_event(unsigned event);
 void tc1_heap_diag_mp(ph_writer *, uint32_t after);
 void tc1_rx_diag_mp(ph_writer *, uint32_t after);
+void tc1_ram_diag_mp(ph_writer *, uint32_t address, uint32_t length);
 void tc1_net_diag_mp(ph_writer *);
 
 void tc1_diag_alloc(void *,size_t,uint32_t);
