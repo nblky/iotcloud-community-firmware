@@ -48,5 +48,7 @@ extern void ApConfig(char* name, char* key);
 extern bool WifiConnect(char* wifi_ssid, char* wifi_key);
 extern void WifiStartOnBoot(void);
 const char *WifiTrialStatus(void);
+bool WifiPowerCycleStart(void);
+void WifiPowerCycleDiagMp(ph_writer *out);
 
 #endif

@@ -136,8 +136,9 @@ static ph_http_action begin(ph_http_exchange *x)
     bool ram_diag=route_matches(r->path,"/api/v1/ram-diag");
     bool net_diag=route_matches(r->path,"/api/v1/net-diag");
     bool mqtt_diag=route_matches(r->path,"/api/v1/mqtt-diag");
+    bool wifi_cycle_diag=route_matches(r->path,"/api/v1/wifi-cycle-diag");
     /* TC1 historically selects an actual route before OPTIONS/authentication. */
-    if(!auth && !query_action && !asset && !command && !backup && !restore && !ota && !memory && !trace && !heap_diag && !net_diag && !rx_diag && !ram_diag && !mqtt_diag) {
+    if(!auth && !query_action && !asset && !command && !backup && !restore && !ota && !memory && !trace && !heap_diag && !net_diag && !rx_diag && !ram_diag && !mqtt_diag && !wifi_cycle_diag) {
         ph_http_message(&product,x,404,"not_found");return PH_HTTP_REPLY;
     }
     x->response.cors=phicomm_cors_headers(r->origin);
@@ -154,6 +155,11 @@ static ph_http_action begin(ph_http_exchange *x)
     if(!asset && !http_auth_authorized(&product,r->authorization)){
         http_auth_reply(&product,x,401,"unauthorized",NULL);return PH_HTTP_REPLY;
     }
+    if(wifi_cycle_diag && !strcmp(r->method,"POST")){
+        if(r->length){ph_http_message(&product,x,400,"invalid_params");return PH_HTTP_REPLY;}
+        bool started=WifiPowerCycleStart();
+        ph_http_message(&product,x,started?202:409,started?"accepted":"busy");return PH_HTTP_REPLY;
+    }
     if(backup || restore){
         if(!ph_auth_password_is_set(device_local_auth())){ph_http_message(&product,x,403,"set_web_password_first");return PH_HTTP_REPLY;}
         if(backup && !strcmp(r->method,"GET")){operation=BACKUP;return prepare(x);}
@@ -164,10 +170,11 @@ static ph_http_action begin(ph_http_exchange *x)
         x->response.suppress_body=!strcmp(r->method,"HEAD");
         if(query_action) { operation=QUERY;return prepare(x); }
         if(memory) { memory_response(x);return PH_HTTP_REPLY; }
-        if(heap_diag || net_diag || rx_diag || ram_diag || mqtt_diag) {
+        if(heap_diag || net_diag || rx_diag || ram_diag || mqtt_diag || wifi_cycle_diag) {
             ph_writer w;ph_buf fixed;
             phw_init_fixed(&w,PH_WIRE_MSGPACK,&fixed,product.scalar,sizeof(product.scalar));
-            if(ram_diag){
+            if(wifi_cycle_diag)WifiPowerCycleDiagMp(&w);
+            else if(ram_diag){
                 const char *q=strchr(r->path,'?');char *end;
                 uint32_t address=0,length=0;
                 if(q && !strncmp(q,"?address=",9)){

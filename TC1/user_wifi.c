@@ -21,6 +21,13 @@ static volatile bool wifi_boot_scan_pending = false;
 static volatile bool wifi_ever_connected = false;
 static struct { char ssid[33], key[65]; volatile bool active, dhcp; } wifi_trial;
 static const char *wifi_trial_status = "idle";
+/* Temporary diagnostic command; normal reconnect never enters this path. */
+static struct {
+    volatile bool active;
+    unsigned stage;
+    uint32_t started_ms, finished_ms;
+    OSStatus suspend_result, off_result, on_result, start_result;
+} wifi_cycle;
 const char *WifiTrialStatus(void) { return wifi_trial_status; }
 
 #define WIFI_BOOT_SCAN_TIMEOUT_SECONDS 300
@@ -163,6 +170,52 @@ static void WifiLedTimerCallback(void* arg)
     UserLedRefresh();
 }
 
+static void WifiPowerCycleWorker(mico_thread_arg_t arg)
+{
+    (void)arg;
+    mico_thread_msleep(1500); /* Return the HTTP acknowledgement before disconnect. */
+    TC1_STATUS_WRITE(wifi_status=WIFI_STATE_CONNECTING;wifi_cycle.stage=2);
+    OSStatus result=micoWlanSuspendStation();
+    TC1_STATUS_WRITE(wifi_cycle.suspend_result=result);
+    mico_thread_msleep(100);
+    result=micoWlanPowerOff();
+    TC1_STATUS_WRITE(wifi_cycle.off_result=result;wifi_cycle.stage=3);
+    mico_thread_msleep(1000);
+    result=micoWlanPowerOn();
+    TC1_STATUS_WRITE(wifi_cycle.on_result=result;wifi_cycle.stage=4);
+    result=WifiStartStationFromSavedConfig();
+    TC1_STATUS_WRITE(wifi_cycle.start_result=result;wifi_cycle.stage=5;
+        wifi_cycle.finished_ms=mico_rtos_get_time();wifi_cycle.active=false);
+    tc1_config_release();
+    mico_rtos_delete_thread(NULL);
+}
+
+bool WifiPowerCycleStart(void)
+{
+    if(wifi_status!=WIFI_STATE_CONNECTED || wifi_reconnect_thread_running || scan_busy ||
+        !WifiHasSavedConfig() || !tc1_config_reserve())return false;
+    TC1_STATUS_WRITE(memset(&wifi_cycle,0,sizeof(wifi_cycle));wifi_cycle.active=true;
+        wifi_cycle.stage=1;wifi_cycle.started_ms=mico_rtos_get_time();
+        wifi_cycle.suspend_result=wifi_cycle.off_result=wifi_cycle.on_result=wifi_cycle.start_result=-1);
+    if(mico_rtos_create_thread(NULL,MICO_APPLICATION_PRIORITY,"wifi_cycle",WifiPowerCycleWorker,4096,0)!=kNoErr){
+        TC1_STATUS_WRITE(wifi_cycle.active=false;wifi_cycle.stage=6);
+        tc1_config_release();return false;
+    }
+    return true;
+}
+
+void WifiPowerCycleDiagMp(ph_writer *out)
+{
+    __typeof__(wifi_cycle) copy;
+    tc1_status_lock();copy=wifi_cycle;tc1_status_unlock();
+    phw_begin(out,NULL,false);phw_text(out,"code","ok");phw_begin(out,"data",false);
+    phw_bool(out,"active",copy.active);phw_int(out,"stage",copy.stage);
+    phw_int(out,"started_ms",copy.started_ms);phw_int(out,"finished_ms",copy.finished_ms);
+    phw_int(out,"suspend_result",copy.suspend_result);phw_int(out,"off_result",copy.off_result);
+    phw_int(out,"on_result",copy.on_result);phw_int(out,"start_result",copy.start_result);
+    phw_end(out);phw_end(out);
+}
+
 static void WifiReconnectThread(mico_thread_arg_t arg)
 {
     LinkStatusTypeDef link_status = { 0 };
@@ -223,6 +276,7 @@ exit:
 
 static void WifiStartReconnect(bool allow_boot_ap)
 {
+    if(wifi_cycle.active)return;
     if (!WifiHasSavedConfig())
     {
         wifi_log("WiFi reconnect skipped: no saved SSID");
