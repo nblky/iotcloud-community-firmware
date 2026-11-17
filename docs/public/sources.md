@@ -7,7 +7,8 @@
 | `images/tc1-ota-*.png`、`images/tc1-stock-*.png`、`images/tc1-community-ap.png` | 用户提供的 TC1 免拆刷机操作截图，裁剪保留路由器、网卡、TFTP、原厂识别及首启热点的关键区域 |
 | `tools/tc1-no-disassembly/mico_ota.bin` | 与免拆主教程相同的已验证镜像快照（原始镜像 SHA-256：`005b5c4d8a1bb4e70b1b6aa84f1c403e648d3c2d4d683a067a22193543050735`），追加其 16 字节二进制 MD5；固定的 0.9.6-ed4474 过渡包，迁移后需继续升级到当前 TC1 版本 |
 | `tools/daikin-stock-ota/daikin-bry88ab.application.bin` | 历史 0.9.21-2cfd89-dirty 快照，保留旧链接；[新版教程](daikin-stock-ota)改从发布下载区选择最新兼容原生应用镜像 |
-| `tools/tc1-no-disassembly/tftp-trigger.bin` | 按免拆主教程生成的 397 字节触发文件，仅用于 TC1 A1 原厂 1.0.0.26，不是通用升级包 |
+| `tools/tc1-no-disassembly/tc1-trigger.py` | 读取原厂 `VERSION`、按内置版本表发送 397 字节触发请求的单文件脚本，无参数 |
+| `tools/tc1-no-disassembly/tftp-trigger.bin` | 按免拆主教程生成的 397 字节触发文件，仅用于 TC1 A1 原厂 1.0.0.26，不是通用升级包；另有两个按版本平移地址的同名文件 |
 | `images/emw3080-pins.png` | [庆科官网 EMW3080 引脚原图](https://docs.mxchip.com/img/zh/1631842737419-34af0113-6807-499a-9ff9-129040293369.png)，保留原图内容，透明背景转为白色 |
 | `images/emw3080-swd-pins.png` | [庆科 EMW3080 官方烧录说明](https://docs.mxchip.com/zh/foiwqd8gbgh23xu2/bwyo0fs5t2rquekz/antua5wkt8m3qx7l/lqdz2h5zpp117imt.html)中的 SWD 模块引脚原图 |
 | `images/tc1-a1-module.png`、`images/tc1-a1-test-points.png` | 用户提供的 TC1 A1 模组与工厂测试点标注图 |

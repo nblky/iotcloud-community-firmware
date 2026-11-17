@@ -1,120 +1,85 @@
 # TC1 illustrated OTA guide
 
-The `mico_ota.bin` in this guide is a fixed **0.9.6-ed4474 migration image** for stock installation. It does not track current releases. After migration, follow the steps below to install the latest compatible stable TC1 release from [Downloads]({{SITE_URL}}en/#releases).
+The computer serves the firmware over **Ethernet** and sends the trigger over **Wi-Fi**. The community image goes into the non-active slot, so the stock slot stays untouched. No case opening, no soldering.
 
-The computer serves firmware over **Ethernet** and sends the trigger over **Wi-Fi**, while a router or AP supplies the OTA network. No case opening, soldering or Python installation is needed. Supports Windows, macOS and Linux.
-
-**For TC1 A1 hardware (EMW3031 / MK3031), stock firmware 1.0.0.26, 1.0.0.24 or 1.0.0.21.** Other stock versions, TC1 A2 and the A1 air purifier are outside this procedure.
+**For TC1 A1 hardware (EMW3031 / MK3031), stock firmware 1.0.0.26, 1.0.0.24 or 1.0.0.21.** TC1 A2, other stock versions and the A1 air purifier are outside this procedure.
 
 <!-- os-picker -->
 
-## 1. Prepare equipment and downloads
+## 1. Create the tc1-flash folder
 
-Use a computer with Ethernet and Wi-Fi, an Ethernet cable, and a router or AP supporting **2.4 GHz open Wi-Fi bridged to its LAN ports**. A USB Ethernet adapter works too. Keep TC1 on stable power and disconnect loads from its outlets.
+Keep every file in one folder and run every command below from inside it (on Windows, use CMD or PowerShell):
 
-Create a `tc1-flash` folder. Download the firmware and **one trigger file matching your stock version**:
+```sh
+mkdir tc1-flash
+cd tc1-flash
+```
+
+Download these two files and keep their names:
 
 | Download | Purpose |
 | --- | --- |
-| [mico_ota.bin](assets/tools/tc1-no-disassembly/mico_ota.bin) | 0.9.6-ed4474 migration image for the TFTP directory; keep this filename |
-| [tftp-trigger.bin (payload, 1.0.0.26)](assets/tools/tc1-no-disassembly/tftp-trigger.bin) | Trigger sent to the stock OTA endpoint; for 1.0.0.26 |
-| [tftp-trigger-1.0.0.24.bin (payload, 1.0.0.24)](assets/tools/tc1-no-disassembly/tftp-trigger-1.0.0.24.bin) | Same trigger with the address shifted for 1.0.0.24 |
-| [tftp-trigger-1.0.0.21.bin (payload, 1.0.0.21)](assets/tools/tc1-no-disassembly/tftp-trigger-1.0.0.21.bin) | Same trigger with the address shifted for 1.0.0.21 |
+| [mico_ota.bin](assets/tools/tc1-no-disassembly/mico_ota.bin) | 649,344-byte 0.9.6-ed4474 migration image; goes into the TFTP directory, filename must not change |
+| [tc1-trigger.py](assets/tools/tc1-no-disassembly/tc1-trigger.py) | Reads the stock version and sends the trigger; keep it beside `mico_ota.bin` |
 
-The firmware is **649,344 bytes**; each trigger file is **397 bytes**. Verify with [SHA256SUMS](assets/SHA256SUMS). See [Firmware updates](firmware-update) for later upgrades.
+Check both files against [SHA256SUMS](assets/SHA256SUMS) and download again on a mismatch. Keep the power strip on stable power and unplug any load from its outlets.
 
-Prepare `curl` and a TFTP server. Download the files and tools before switching Wi-Fi networks, and keep the original filenames.
+Done when: `tc1-flash` holds both files with unchanged names.
 
-<!-- os:windows -->
+## 2. Create the PHICOMM_OTA_AP hotspot, then connect Ethernet
 
-Use [Tftpd64](https://pjo2.github.io/tftpd64/) for TFTP. Check curl in CMD or PowerShell:
+TC1 leaves its provisioning hotspot as soon as it receives the trigger, then joins `PHICOMM_OTA_AP` to download the firmware. **Set up the download network before touching TC1.**
 
-```cmd
-curl.exe --version
-```
-
-Windows commands use `curl.exe` to avoid the PowerShell alias.
-
-<!-- /os -->
-
-<!-- os:linux -->
-
-Prepare `dnsmasq` for the temporary TFTP service in step 4. On Debian / Ubuntu, install `dnsmasq-base` while still online. Check curl:
-
-```sh
-curl --version
-```
-
-<!-- /os -->
-
-<!-- os:mac -->
-
-Use the built-in TFTP service configured in step 4. Check curl in Terminal:
-
-```sh
-curl --version
-```
-
-<!-- /os -->
-
-## 2. Configure the AP and connect Ethernet
-
-After receiving the trigger, TC1 leaves its provisioning hotspot and joins `PHICOMM_OTA_AP` to download firmware. Prepare that network first.
-
-| Connection | Connects to | Purpose |
-| --- | --- | --- |
-| Computer Ethernet, `10.0.0.2/8` | Router / AP LAN port | Serve the firmware over TFTP |
-| Computer Wi-Fi | TC1's `Phicomm_TC1_XXXX` hotspot | Read the version and send the trigger |
-| TC1 after receiving the trigger | Router's `PHICOMM_OTA_AP` hotspot | Download firmware from the computer |
-
-Configure the router or AP's **2.4 GHz** network:
+In the router or AP wireless settings, select **2.4 GHz** and confirm all four items:
 
 | Setting | Value |
 | --- | --- |
-| SSID | Exactly `PHICOMM_OTA_AP`, case-sensitive, no extra spaces |
+| Wi-Fi name / SSID | `PHICOMM_OTA_AP`, same case, no spaces |
 | Security / password | Open, no password |
-| Hidden SSID | Off |
-| Guest mode / client isolation | Off; wireless clients must reach the computer on LAN |
+| Hide SSID | Off |
+| Guest mode / client isolation | Off |
 
-![Router settings: PHICOMM_OTA_AP, open security, hidden SSID and guest mode off](assets/images/tc1-ota-ap.png)
+![Router wireless settings: PHICOMM_OTA_AP, no password, no hiding, no guest mode](assets/images/tc1-ota-ap.png)
 
-Save, then connect the computer to a **LAN port**. Internet access is unnecessary. Leave the router's management address alone: `10.0.0.2` belongs to the computer. Check for address conflicts.
+Connect the computer to a **LAN port** of that router with an Ethernet cable. The router needs no internet access and its management address does not become `10.0.0.2` — that address belongs to the computer — but make sure nothing else on the LAN already uses it. Do not bridge Ethernet and Wi-Fi and do not enable connection sharing. The hotspot needs no DHCP: TC1 uses a static address of its own.
 
-The computer's adapters need **no bridge or Internet sharing**. Keep Ethernet connected to the AP and Wi-Fi connected to TC1 during flashing.
+Done when: a phone joins the open `PHICOMM_OTA_AP` and the LAN port LED is lit.
 
-## 3. Add 10.0.0.2 to Ethernet
+## 3. Add 10.0.0.2 to the Ethernet adapter, and write down the old settings
 
-Use **`10.0.0.2` with mask `255.0.0.0` (/8)**, with no additional gateway or DNS. Record the original addresses, gateway, DNS and DHCP state first.
+The TFTP server address must be `10.0.0.2/8`, **with no gateway and no DNS**. Write the old settings down first; section 7 restores from this list:
+
+```text
+Ethernet adapter name:
+Old address / netmask:
+Old gateway:
+Old DNS:
+Was it DHCP or static:
+```
 
 <!-- os:windows -->
 
-### Windows
-
-Open CMD or PowerShell as administrator:
+List the adapters and their current settings, then find the **Ethernet** adapter wired to the LAN port:
 
 ```cmd
 netsh interface ipv4 show interfaces
 ipconfig /all
 ```
 
-Find the Ethernet adapter connected to the router. Replace `Ethernet` below with its actual name:
+The examples use `Ethernet`; substitute your adapter name inside the quotes:
 
 ```cmd
 netsh interface ipv4 add address name="Ethernet" address=10.0.0.2 mask=255.0.0.0
 netsh interface ipv4 show addresses name="Ethernet"
 ```
 
-![Administrator terminal adding 10.0.0.2/8 to Ethernet](assets/images/tc1-ota-windows-address.png)
-
-Confirm `10.0.0.2` appears. **This command disables DHCP on an adapter previously configured to obtain its address automatically.** Restore DHCP afterward if that was its original mode. See [Microsoft's netsh reference](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/netsh-interface).
+![Administrator command line adding 10.0.0.2/8 to Ethernet](assets/images/tc1-ota-windows-address.png)
 
 <!-- /os -->
 
 <!-- os:linux -->
 
-### Linux
-
-Find the wired adapter; replace example `enp3s0` with its actual name:
+Find the adapter name; the examples use `enp3s0`:
 
 ```sh
 ip -br address
@@ -127,9 +92,7 @@ ip -4 address show dev enp3s0
 
 <!-- os:mac -->
 
-### macOS
-
-Distinguish Wi-Fi from Ethernet first. USB Ethernet may be `en5`, rather than `en0`; substitute your actual wired interface:
+Identify the Ethernet adapter first; a USB adapter is not necessarily `en0`. The examples assume `en5`:
 
 ```sh
 networksetup -listallhardwareports
@@ -140,30 +103,28 @@ ifconfig en5
 
 <!-- /os -->
 
-Confirm **Ethernet actually has `10.0.0.2/8`** before continuing. Resolve missing interfaces and address conflicts first.
+Done when: the Ethernet adapter actually shows `10.0.0.2/8`.
 
-## 4. Start TFTP
+## 4. Start TFTP, then download once from another device
 
-TC1 reads `mico_ota.bin` from the computer. **Keep the payload in your terminal's working folder; it is not served through TFTP.** Keep the server running until the firmware transfer completes.
+Put only `mico_ota.bin` in the TFTP directory; **do not put the payload there**. Keep the service running until the transfer finishes.
 
 <!-- os:windows -->
 
-### Windows: Tftpd64
+Open Tftpd64 and set four things:
 
-1. Set **Current Directory** using **Browse** to the `tc1-flash` folder containing `mico_ota.bin`.
-2. Choose **`10.0.0.2`** under **Server interfaces**, rather than the Wi-Fi address.
-3. Keep **Tftp Server** open to watch transfer records. Do not enable its DHCP server.
-4. Allow Tftpd64 through the firewall on the flashing network when prompted.
+1. **Current Directory** → **Browse** → pick the `tc1-flash` folder.
+2. **Server interfaces** → **`10.0.0.2`**, not the Wi-Fi address.
+3. Open the **Tftp Server** tab and leave the window open to watch transfers; its DHCP service is not needed.
+4. Allow Tftpd64 through Windows Firewall on this flashing network when prompted.
 
-![Tftpd64 directory selection and Server interfaces set to 10.0.0.2](assets/images/tc1-ota-tftpd64.png)
+![Tftpd64: firmware directory selected, Server interfaces set to 10.0.0.2](assets/images/tc1-ota-tftpd64.png)
 
 <!-- /os -->
 
 <!-- os:linux -->
 
-### Linux: temporary dnsmasq TFTP
-
-On Debian / Ubuntu, install `dnsmasq-base` before switching networks. Other distributions need the package providing `dnsmasq`. Run from the `tc1-flash` folder:
+On Debian / Ubuntu install `dnsmasq-base`, then run this inside `tc1-flash`:
 
 ```sh
 sudo apt install dnsmasq-base
@@ -175,15 +136,13 @@ sudo dnsmasq --no-daemon --conf-file=/dev/null --port=0 \
   --tftp-root="$tc1_tftp_dir" --log-facility=-
 ```
 
-Keep this terminal running and open another for curl. This temporary command provides TFTP without DNS or DHCP. If UDP 69 is already occupied, identify the existing TFTP server and use its serving directory instead of starting another instance.
+This serves TFTP only, no DNS or DHCP. Leave the terminal running and send the trigger from a second terminal. If UDP 69 is already taken, use the existing service and its directory instead of starting another.
 
 <!-- /os -->
 
 <!-- os:mac -->
 
-### macOS: built-in TFTP
-
-Open a terminal in `tc1-flash`. Check `/private/tftpboot` for an existing firmware file with the same name and back it up if needed, then run:
+Run this inside `tc1-flash`. First make sure `/private/tftpboot` holds no same-named file you need to keep:
 
 ```sh
 sudo mkdir -p /private/tftpboot
@@ -192,15 +151,15 @@ sudo chmod 644 /private/tftpboot/mico_ota.bin
 sudo launchctl load -w /System/Library/LaunchDaemons/tftp.plist
 ```
 
-The built-in service serves `/private/tftpboot` without a graphical progress window. If already loaded, verify the existing service.
+The built-in service has no progress window; watch the device in section 6 instead.
 
 <!-- /os -->
 
-### Verify file access
+TFTP requests start on **UDP 69**, but the transfer continues on a session port the server opens. The firewall must allow the whole transfer, not just UDP 69.
 
-TFTP starts on **UDP 69**, then transfers data through a separate session port. Allow complete TFTP transfers on the flashing network, including those session ports.
+### Self-check: download once from another device
 
-Before putting TC1 in provisioning mode, download the entire file from another computer connected to `PHICOMM_OTA_AP`. If that client's curl supports `tftp`, run:
+Before putting TC1 into provisioning mode, download the file completely from another device joined to `PHICOMM_OTA_AP`:
 
 <!-- os:windows -->
 
@@ -218,111 +177,89 @@ curl --fail --max-time 30 -o tc1-download-check.bin tftp://10.0.0.2/mico_ota.bin
 
 <!-- /os -->
 
-If the client uses a different OS, use its curl command or a TFTP client in **binary / octet** mode. Download from the AP-connected client and compare the size and SHA-256 with the original.
+If curl lacks `tftp://`, use any TFTP client in binary / octet mode.
 
-## 5. Put TC1 in provisioning mode
+Done when: the download succeeds and the file is 649,344 bytes. Do not continue until this passes.
 
-Power-cycle TC1 and **double-press the provisioning button within 3 seconds**. The LED should blink slowly and the open hotspot **`Phicomm_TC1_XXXX`** should appear; the last four characters vary by device.
+## 5. Put TC1 into provisioning mode and read the stock version
 
-Alternatively, hold the button until fast blinking, continue holding briefly, release, then quickly press twice. Trust the hotspot appearing. If absent, power-cycle and retry before sending any payload.
+Power-cycle TC1 and **double-press the pairing button within 3 seconds** of powering on. After the LED starts blinking slowly, an open hotspot `Phicomm_TC1_XXXX` appears; the last four characters differ per device.
 
-Connect the computer's **Wi-Fi** to that hotspot. Keep Ethernet and TFTP running.
+If no hotspot appears: hold the pairing button until the LED blinks fast, release, then short-press twice in quick succession. If it still does not appear, power-cycle and retry — do not send the trigger early.
 
-<!-- os:windows -->
+Join that hotspot with the computer's **Wi-Fi** adapter; leave Ethernet and TFTP untouched. When Windows reports "No internet", stay connected instead of reconnecting.
 
-If Windows reports no Internet, stay connected to TC1.
+![Stock provisioning hotspot in the Windows wireless list](assets/images/tc1-stock-ap.png)
 
-<!-- /os -->
-
-![Stock provisioning hotspot Phicomm_TC1_6D3D in the wireless list](assets/images/tc1-stock-ap.png)
-
-Confirm Wi-Fi has a `10.10.10.x/24` address, then query the stock firmware.
-
-<!-- os:windows -->
-
-**Windows:**
-
-```cmd
-curl.exe --noproxy "*" --fail --max-time 5 http://10.10.10.1:8000/read-domain
-```
-
-<!-- /os -->
-
-<!-- os:mac linux -->
+Confirm Wi-Fi holds a `10.10.10.x/24` address, then read the stock identity:
 
 ```sh
 curl --noproxy '*' --fail --max-time 5 http://10.10.10.1:8000/read-domain
 ```
 
-<!-- /os -->
+On Windows use `curl.exe`. Never drop `--noproxy '*'`: a system proxy stops requests to `10.10.10.1` from reaching the device.
 
-Check **`VERSION` = `1.0.0.26`, `1.0.0.24` or `1.0.0.21`** (1.0.0.21 reports `COMPILE_TIME` `Oct 29 2017 11:09:21`; the other two report `Apr 13 2018 10:09:06`). The screenshot's `COMMITID` is `d1ecc7616f55bbf781be3bd80e23bab7c03dc047` (`d22fb6bcbbb63537ce33e596278963424bf11fbb` for 1.0.0.21). Stop if the version or build identifier differs; the payload must match the detected version (use `tftp-trigger.bin` for 1.0.0.26, `tftp-trigger-1.0.0.24.bin` for 1.0.0.24 and `tftp-trigger-1.0.0.21.bin` for 1.0.0.21).
+![read-domain returning the stock VERSION](assets/images/tc1-stock-version.png)
 
-<!-- os:windows -->
+Read only `VERSION` from the response. It must be one of `1.0.0.26`, `1.0.0.24`, `1.0.0.21`. Anything else: stop and see [OTA internals and custom images](tc1-no-disassembly).
 
-![read-domain response containing stock VERSION and COMMITID](assets/images/tc1-stock-version.png)
+Done when: the JSON contains `VERSION` and it is one of those three values.
 
-<!-- /os -->
+## 6. Run the script, then leave everything alone
 
-## 6. Send the trigger file and wait
+Before sending, confirm three things: TFTP is still running, Ethernet still has `10.0.0.2`, and Wi-Fi is still on TC1. Then run this once:
 
-Open a terminal in the `tc1-flash` folder containing **`tftp-trigger.bin`** (use `tftp-trigger-1.0.0.24.bin` for a 1.0.0.24 device or `tftp-trigger-1.0.0.21.bin` for a 1.0.0.21 device). Confirm TFTP is running, Ethernet still has `10.0.0.2`, and Wi-Fi is connected to TC1. Send **once**:
-
-<!-- os:windows -->
-
-**Windows (CMD / PowerShell):**
-
-```cmd
-curl.exe --noproxy "*" --max-time 30 --header "Content-Type: application/json" --data-binary "@tftp-trigger.bin" http://10.10.10.1:8000/OTA
+```sh
+python3 tc1-trigger.py
 ```
 
-<!-- /os -->
+The script reads `VERSION` from `10.10.10.1:8000`, picks the target address for that version and sends the 397-byte trigger. If the version is outside the verified set, or the device cannot be reached, it exits without falling back to another version's address.
 
-<!-- os:mac linux -->
+**Send once.** If the script reports the device answered, stop. If it reports the result unconfirmed, watch the TFTP log and the device instead of sending again.
+
+### Manual path without Python
+
+Download the file matching the version read in section 5: [tftp-trigger.bin](assets/tools/tc1-no-disassembly/tftp-trigger.bin) for 1.0.0.26, [tftp-trigger-1.0.0.24.bin](assets/tools/tc1-no-disassembly/tftp-trigger-1.0.0.24.bin) for 1.0.0.24, [tftp-trigger-1.0.0.21.bin](assets/tools/tc1-no-disassembly/tftp-trigger-1.0.0.21.bin) for 1.0.0.21.
+
+Send it once from inside `tc1-flash`; on Windows use `curl.exe`:
 
 ```sh
 curl --noproxy '*' --max-time 30 --header 'Content-Type: application/json' --data-binary '@tftp-trigger.bin' http://10.10.10.1:8000/OTA
 ```
 
-<!-- /os -->
+`--data-binary` sends the file verbatim: do not open the payload and copy it as text, and do not paste prompts or backticks from a screenshot into the command.
 
-`--data-binary` preserves the payload bytes. Do not open the file and paste its contents as text, or include the prompt/backticks shown in screenshots.
+![Stock endpoint returning OTA text after the curl trigger](assets/images/tc1-ota-trigger.png)
 
-<!-- os:windows -->
+### The next one to two minutes
 
-![Stock endpoint returns OTA text after curl sends tftp-trigger.bin](assets/images/tc1-ota-trigger.png)
+The device erases the non-active slot (about 6 seconds), downloads `mico_ota.bin` from `10.0.0.2:69`, verifies the trailing MD5, then switches slots and reboots. During this:
 
-<!-- /os -->
+- the provisioning hotspot disappearing, Wi-Fi dropping and curl timing out are all expected;
+- any TFTP log or progress window should show the read request and the complete transfer;
+- the computer's Wi-Fi does not switch to `PHICOMM_OTA_AP`; Ethernet carries the transfer.
 
-After receiving `OTA` or repeated `A` characters, wait for download and reboot. The provisioning hotspot disappearing and Wi-Fi disconnecting are expected during the network switch. Even if curl times out, observe the device and download before considering another attempt.
+**Keep TC1, the AP and the computer powered; do not stop TFTP, unplug the cable or cut power while the download is running.**
 
-TC1 joins `PHICOMM_OTA_AP` and downloads `mico_ota.bin` over Ethernet through the AP. Where logs or progress are available, look for a read request and complete transfer. **The computer's Wi-Fi does not need to switch to the AP.**
+Done when: the TFTP log shows `mico_ota.bin` transferred and the device reboots on its own.
 
-Keep TC1, AP and computer powered while download, verification and reboot finish. Do not stop TFTP or disconnect Ethernet during transfer.
+## 7. Confirm the flash, then restore the network
 
-## 7. Confirm the community firmware starts
+A new open hotspot **`TC1_A1-AP-<last six MAC characters, uppercase>`** appears; `TC1_A1-AP-636D3D` in the screenshot is only an example.
 
-The new open hotspot should be **`TC1_A1-AP-<last six MAC characters in uppercase>`**. The screenshot's `TC1_A1-AP-636D3D` is an example.
+![TC1_A1-AP hotspot after booting the community firmware](assets/images/tc1-community-ap.png)
 
-![Community firmware hotspot TC1_A1-AP-636D3D](assets/images/tc1-community-ap.png)
+Join it and open **`http://192.168.0.1/`**. Reaching the community firmware page means the flash worked. Set up your daily Wi-Fi there; buttons, provisioning and the six outlets are covered in [TC1 features and operation](tc1-guide).
 
-Join it from a computer or phone, open **`http://192.168.0.1/`**, and confirm the community WebUI loads. Configure your normal Wi-Fi there. See [TC1 operation](tc1-guide) for controls and pairing.
-
-Configure normal Wi-Fi, then select **TC1 → latest compatible stable release → Full → Signed OTA** in [Firmware & resources]({{SITE_URL}}en/#releases). Download `phicomm_tc1_a1.ota.bin.signed` and that release's `SHA256SUMS`. Verify the digest, upload through the device's firmware update page and keep power connected. After reboot, reopen the WebUI and check the new version, six outlet names and settings. See [Firmware updates](firmware-update); do not send the stock trigger again.
-
-## 8. Stop temporary services and restore networking
+Stop the temporary service and remove the temporary address:
 
 <!-- os:windows -->
-
-Close Tftpd64, then remove the added address using the same interface name as step 3.
-
-**Windows:**
 
 ```cmd
 netsh interface ipv4 delete address name="Ethernet" address=10.0.0.2
 ```
 
-If Ethernet originally used DHCP, restore it with the following command. For an originally static configuration, restore your recorded settings instead:
+Close Tftpd64. If the adapter used DHCP before, restore it:
 
 ```cmd
 netsh interface ipv4 set address name="Ethernet" source=dhcp
@@ -332,17 +269,15 @@ netsh interface ipv4 set address name="Ethernet" source=dhcp
 
 <!-- os:linux -->
 
-Press `Ctrl+C` in the temporary dnsmasq terminal, then remove the added address using the actual Ethernet interface name:
-
 ```sh
 sudo ip address del 10.0.0.2/8 dev enp3s0
 ```
 
+Press `Ctrl+C` in the terminal running dnsmasq.
+
 <!-- /os -->
 
 <!-- os:mac -->
-
-If you enabled TFTP just for this procedure, stop it. Then remove the added address using the same interface name as step 3:
 
 ```sh
 sudo launchctl unload -w /System/Library/LaunchDaemons/tftp.plist
@@ -351,16 +286,22 @@ sudo ifconfig en5 inet 10.0.0.2 -alias
 
 <!-- /os -->
 
-Disable the temporary open AP or restore its original SSID and password. Remove temporary firewall exceptions and the firmware copies you added to temporary serving directories.
+**If the adapter was static before, do not run the DHCP command.** Fill the five entries recorded in section 3 back in: address and netmask, gateway, DNS, DHCP or static. Then turn off the temporary hotspot, or restore the router's original Wi-Fi name and password, and withdraw the firewall allowance you added.
 
-## Troubleshooting
+For later upgrades take the latest compatible stable release from [Downloads]({{SITE_URL}}en/#releases); see [Firmware updates](firmware-update). No second trigger is needed.
 
-| Symptom | Check |
+Done when: the computer browses normally and both the router page and `http://192.168.0.1/` open.
+
+If flashing fails, or the device stays in provisioning mode without booting, follow [wired installation and recovery](tc1-flash). The stock slot was not modified, so recovery is possible.
+
+## Common questions
+
+| Symptom | Do this one thing first |
 | --- | --- |
-| curl cannot find payload | Open the terminal in `tc1-flash`; make sure the filename is not `tftp-trigger.bin.txt` and matches the device version |
-| read-domain does not respond | Recheck TC1 Wi-Fi and `10.10.10.x/24`; pause VPN/proxy settings affecting local routes |
-| No TFTP request | Verify open 2.4 GHz AP, exact SSID, LAN bridging, server binding and firewall |
-| Transfer starts then stalls | Check session ports, computer sleep and Ethernet connection |
-| Download finishes but no new hotspot | Keep power on and check file size and checksum; do not repeatedly trigger OTA |
+| Script cannot reach `10.10.10.1:8000` | Back to section 5: is Wi-Fi still on `Phicomm_TC1_XXXX` and does it hold `10.10.10.x`? |
+| Manual curl cannot find the payload | Run it inside `tc1-flash`, make sure the name is not `tftp-trigger.bin.txt`, and that the file matches the version read in section 5 |
+| TFTP sees no request | Check the four hotspot settings in section 2, the service binding and firewall in section 4 |
+| TFTP stalls mid-transfer | Check whether the session port is blocked, the computer slept, or the cable is loose |
+| No new hotspot after the transfer | Wait one to two minutes and check the TFTP log for a completed `mico_ota.bin` |
 
-For custom images or other network layouts, see [OTA internals and custom images](tc1-no-disassembly). For programmer-based recovery, see [wired flashing and recovery](tc1-flash).
+Network topologies, custom images and internals: [OTA internals and custom images](tc1-no-disassembly). Downloader-based recovery: [wired installation and recovery](tc1-flash).

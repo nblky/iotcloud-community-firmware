@@ -7,7 +7,8 @@ Guide images and tools are hosted under `guides/assets/`. [SHA256SUMS](assets/SH
 | `images/tc1-ota-*.png`, `images/tc1-stock-*.png`, `images/tc1-community-ap.png` | User-provided no-disassembly flashing screenshots, cropped to key router, network, TFTP, stock identity and first-boot areas |
 | `tools/tc1-no-disassembly/mico_ota.bin` | The same validated image snapshot as the parent guide (raw image SHA-256: `005b5c4d8a1bb4e70b1b6aa84f1c403e648d3c2d4d683a067a22193543050735`) plus its 16-byte binary MD5; fixed 0.9.6-ed4474 migration image; install the current TC1 release after migration |
 | `tools/daikin-stock-ota/daikin-bry88ab.application.bin` | Legacy 0.9.21-2cfd89-dirty snapshot; retained for old links. The [current guide](daikin-stock-ota) downloads the latest compatible native application from the release catalog |
-| `tools/tc1-no-disassembly/tftp-trigger.bin` | 397-byte trigger generated from the parent guide, only for TC1 A1 stock 1.0.0.26, not a general firmware update package |
+| `tools/tc1-no-disassembly/tc1-trigger.py` | Single-file script that reads the stock `VERSION` and sends the 397-byte trigger for the built-in version table; no arguments |
+| `tools/tc1-no-disassembly/tftp-trigger.bin` | 397-byte trigger generated from the parent guide, only for TC1 A1 stock 1.0.0.26, not a general firmware update package; two sibling files shift the address for other stock versions |
 | `images/emw3080-pins.png` | [MXCHIP EMW3080 pin diagram](https://docs.mxchip.com/img/zh/1631842737419-34af0113-6807-499a-9ff9-129040293369.png); original content retained, transparent background changed to white |
 | `images/emw3080-swd-pins.png` | SWD pin diagram from the [official EMW3080 flashing guide](https://docs.mxchip.com/zh/foiwqd8gbgh23xu2/bwyo0fs5t2rquekz/antua5wkt8m3qx7l/lqdz2h5zpp117imt.html) |
 | `images/tc1-a1-module.png`, `images/tc1-a1-test-points.png` | User-provided annotated TC1 A1 module / factory test-point images |

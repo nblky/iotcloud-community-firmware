@@ -1,10 +1,10 @@
 # TC1 OTA internals and custom images
 
-The `mico_ota.bin` in this guide is a fixed **0.9.6-ed4474 migration image** for stock installation. It does not track current releases. After migration, follow the steps below to install the latest compatible stable TC1 release from [Downloads]({{SITE_URL}}en/#releases).
-
 **For TC1 A1 hardware (EMW3031 / MK3031) running stock firmware 1.0.0.26, 1.0.0.24 or 1.0.0.21.** Other stock versions, TC1 A2 and the A1 air purifier are not supported.
 
-This page covers factory OTA internals, image packaging and alternative network layouts. To install directly, follow the [illustrated OTA guide](tc1-no-disassembly-ethernet-wifi-ap), with prepared files and Windows / macOS / Linux steps.
+This page covers factory OTA internals, image packaging and alternative topologies. To follow the procedure, use the [illustrated OTA guide](tc1-no-disassembly-ethernet-wifi-ap), which carries the files and the Windows / macOS / Linux steps.
+
+The bundled `mico_ota.bin` is a fixed **0.9.6-ed4474 migration image** for stock installation only; it does not track current releases. After migration, upgrade to the latest compatible stable TC1 release from [Downloads]({{SITE_URL}}en/#releases) as described in [Firmware updates](firmware-update).
 
 ## How it works
 
@@ -22,8 +22,6 @@ There are two connections: **the computer first joins the TC1 provisioning AP to
 - A computer with **Ethernet and Wi-Fi adapters**, and a router that supports **2.4 GHz open Wi-Fi**.
 - An Ethernet cable, `curl` and **tftpd or another TFTP server**. Python 3 is needed for custom image packaging or the scripts below.
 - The community application-slot image `tc1_community.image.bin` for this hardware.
-
-Other equivalent topologies work too. You need a client that can join the TC1 provisioning AP to send the trigger, and a file server that TC1 can reach through the OTA AP afterward.
 
 Review [power and wiring requirements](flash-prep) and [firmware package selection](firmware-update). Flashing erases the inactive application slot and reboots the device. Use [wired recovery](tc1-flash) if installation fails.
 
@@ -46,122 +44,57 @@ PY
 
 The image MD5 should be `137bbe25d40f0a45b2b3129f035ea4c3`. Do not use a full-flash dump, a complete `.all.bin` or a `PHOTA001` web package as input; these checks only cover the MRVL marker, size and MD5, not hardware suitability.
 
-## Flashing procedure
+## Network topologies
 
-### Before you start
+The procedure needs two connections with different roles, and they need not be on the same device:
 
-1. Put `mico_ota.bin` in the computer's TFTP serving directory and open a terminal and the TFTP log window.
-2. Keep TC1 on stable power with no loads connected to its outlets.
-3. Set up and verify the OTA AP and TFTP service before putting TC1 into provisioning mode and sending the trigger. Keep Ethernet, the router and TFTP running throughout flashing.
+| Role | What it does |
+| --- | --- |
+| Provisioning client | Joins the TC1 `Phicomm_TC1_XXXX` hotspot, gets `10.10.10.x/24`, sends the trigger to `10.10.10.1:8000` |
+| OTA network | Provides the open 2.4 GHz hotspot `PHICOMM_OTA_AP` and lets the device reach the TFTP server at `10.0.0.2/8` |
 
-### 1. Create the OTA AP and TFTP service
+Two computers, a computer plus a travel router, or a single device supporting concurrent STA/AP all work. TFTP can run on the AP itself or on a wired host bridged to the hotspot. When one radio serves both STA and AP, bring up `PHICOMM_OTA_AP` first and join the TC1 provisioning hotspot second: in the reverse order some drivers fail to start the AP.
 
-#### Network requirements
+### Serving TFTP with Python
 
-Any OS and device combination can be used. A computer or phone can join the TC1 provisioning AP while another computer, travel router or wireless AP provides the OTA network. TFTP can run on the AP itself or on an Ethernet computer bridged to the AP.
+Without a TFTP package, start the temporary service from step 4 of the [illustrated guide](tc1-no-disassembly-ethernet-wifi-ap). Listening on port 69 normally needs elevated privileges on Linux and macOS; on Windows allow UDP on that adapter when the firewall prompts.
 
-Every setup must provide an **open 2.4 GHz AP named `PHICOMM_OTA_AP` and a TFTP server at `10.0.0.2/8` reachable through that AP**, serving `mico_ota.bin`. If one Wi-Fi adapter both joins the TC1 AP and provides the OTA AP, its hardware and driver must support simultaneous client and AP operation.
+### Fixed device-side parameters
 
-#### Optional: serve the file with Python
+| Parameter | Value |
+| --- | --- |
+| Provisioning hotspot / address | `Phicomm_TC1_XXXX`, `10.10.10.1/24`, configuration service on `:8000` |
+| OTA hotspot | `PHICOMM_OTA_AP`, 2.4 GHz, open |
+| TFTP service | `10.0.0.2:69`, octet, 512-byte blocks |
+| Filename | `mico_ota.bin`, must not be renamed |
+| Device OTA address | `10.<last three MAC bytes, each in decimal>`, netmask `/8` |
+| Non-active slot capacity | `0xA9000` = 692224 B |
 
-Without an existing TFTP application, this read-only Python service serves exactly that file:
+After joining the OTA hotspot the device erases the non-active slot (about 6.5 seconds on the sample unit), downloads from `10.0.0.2`, verifies the MD5 and switches slots to reboot. A successful first boot shows the open hotspot `TC1_A1-AP-<last six MAC characters, uppercase>` with the device at `192.168.0.1`.
 
-```sh
-python3 - <<'PY'
-import socket, struct
-data = open('mico_ota.bin', 'rb').read()
-srv = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-srv.bind(('10.0.0.2', 69))
-print('listening on 10.0.0.2:69,', len(data), 'B')
-while True:
-    req, peer = srv.recvfrom(2048)
-    if req[2:].split(b'\0')[:2] != [b'mico_ota.bin', b'octet']:
-        srv.sendto(struct.pack('!HH', 5, 4) + b'only mico_ota.bin octet\0', peer)
-        continue
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as stream:
-        stream.bind(('10.0.0.2', 0))
-        stream.settimeout(3)
-        for offset in range(0, len(data) + 1, 512):
-            block = offset // 512 + 1
-            packet = struct.pack('!HH', 3, block) + data[offset:offset + 512]
-            for _ in range(5):
-                stream.sendto(packet, peer)
-                try:
-                    ack, sender = stream.recvfrom(516)
-                except socket.timeout:
-                    continue
-                if sender == peer and ack == struct.pack('!HH', 4, block):
-                    break
-print('done')
-PY
-```
+### The trigger request
 
-Port 69 needs elevated privileges on Linux and macOS; on Windows allow UDP through the firewall for the OTA adapter.
+The trigger file is 397 bytes: 392 bytes of filler, the target address as 4 little-endian bytes, and a trailing NUL. The target address follows the `VERSION` returned by `/read-domain`:
 
-### 2. Put TC1 into provisioning mode
-
-Either method works. The success state is the same: slow blinking LED, open AP `Phicomm_TC1_XXXX` (`XXXX` = last four MAC characters), address `10.10.10.1/24` and the `:8000` service.
-
-- **Method 1:** power-cycle, then **double-press the provisioning button within 3 seconds** of power-up. The LED turns to ~500 ms slow blink and the AP appears.
-- **Method 2:** long-press the provisioning button, wait for fast blink, keep holding for a while, release, then quickly short-press twice. The AP appearing confirms provisioning mode. Fast-blink timing can differ between stock versions, so trust the AP rather than the light.
-
-If the AP does not appear, power-cycle and retry method 1. Then re-check hardware and stock version; do not spam the button.
-
-Join `Phicomm_TC1_XXXX` using the computer's Wi-Fi adapter and check that it has a `10.10.10.x/24` address. Keep Ethernet and TFTP running. In a terminal on the computer, read back the stock firmware identity:
-
-```sh
-curl -s -m 5 http://10.10.10.1:8000/read-domain
-```
-
-`VERSION` must be `1.0.0.26` or `1.0.0.24` with `COMPILE_TIME` `Apr 13 2018 10:09:06`, or `1.0.0.21` with `COMPILE_TIME` `Oct 29 2017 11:09:21`. Do not continue on a different build; the later payload target must match the detected version (see the next step).
-
-### 3. Send the trigger request
-
-Download the payload for your stock version to skip Python generation: [tftp-trigger.bin](assets/tools/tc1-no-disassembly/tftp-trigger.bin) for 1.0.0.26, [tftp-trigger-1.0.0.24.bin](assets/tools/tc1-no-disassembly/tftp-trigger-1.0.0.24.bin) for 1.0.0.24, [tftp-trigger-1.0.0.21.bin](assets/tools/tc1-no-disassembly/tftp-trigger-1.0.0.21.bin) for 1.0.0.21. Complete Windows / macOS / Linux commands are in the [illustrated OTA guide](tc1-no-disassembly-ethernet-wifi-ap).
-
-The payload target address depends on the stock version; all three versions share the same in-frame offsets and differ only by an address shift:
-
-| Stock version | Payload target (little-endian) | Notes |
+| Stock version | Target address (little-endian) | Note |
 | --- | --- | --- |
-| 1.0.0.26 | `0x1F073D9F` (`9f 3d 07 1f`) | factory OTA thread body |
-| 1.0.0.24 | `0x1F073D63` (`63 3d 07 1f`) | same thread body, address shifted by −0x3C |
-| 1.0.0.21 | `0x1F073D2F` (`2f 3d 07 1f`) | same thread body, address shifted by −0x34 |
+| 1.0.0.26 | `0x1F073D9F` (`9f 3d 07 1f`) | Factory OTA thread body |
+| 1.0.0.24 | `0x1F073D63` (`63 3d 07 1f`) | Same thread body, address shifted by -0x3C |
+| 1.0.0.21 | `0x1F073D2F` (`2f 3d 07 1f`) | Same thread body, address shifted by -0x34 |
 
-Keep the computer's Wi-Fi adapter connected to the TC1 provisioning AP and run these commands in a terminal. Python creates the stack-overflow trigger file; `curl` sends it to the device. Send it once, then watch the device and TFTP logs. Replace the target address from the table above:
+Send it with the bundled script, which reads the version, picks the address and needs no arguments:
 
 ```sh
-python3 - <<'PY'
-# 0x1F073D9F for 1.0.0.26; 0x1F073D63 for 1.0.0.24; 0x1F073D2F for 1.0.0.21
-body = b'A' * 392 + (0x1F073D9F).to_bytes(4, 'little') + b'\0'
-open('tftp-trigger.bin', 'wb').write(body)
-print(len(body))
-PY
-curl --max-time 30 --header 'Content-Type: application/json' \
-  --data-binary @tftp-trigger.bin \
-  http://10.10.10.1:8000/OTA
+python3 tc1-trigger.py
 ```
 
-A small helper script is also included: [gen-trigger.py](assets/tools/tc1-no-disassembly/gen-trigger.py), run `python3 gen-trigger.py --version 1.0.0.21 --out tftp-trigger.bin`.
+If it cannot reach the device, or the version is not in the table above, it exits without falling back to another version's address. Send once; when the result is unconfirmed, watch the TFTP log and the device instead of resending.
 
-After receiving `OTA AAAA...`, wait for download and reboot. If the connection drops, watch the device and do not retrigger immediately.
+## Other stock versions
 
-### 4. Wait for the download and first boot
+The three verified versions share one frame layout (`BUF_OFF=0x148`, `LR_OFF=0x2d4`, `filler=392`); only the `tftp_ota` thread body address differs, which is where the three addresses above come from.
 
-After entering factory OTA mode, TC1 leaves its provisioning AP and joins the router's `PHICOMM_OTA_AP`. The computer losing its Wi-Fi connection is expected. Keep Ethernet and TFTP running.
-
-Watch the computer's **TFTP logs** for a request and download of `mico_ota.bin`. The **computer sends the file and TC1 downloads it**. TFTP tools typically show a read request (RRQ) or a file-sent record.
-
-On the OTA network, TC1 uses `10.<last three MAC bytes as decimals>` with mask `/8`; its address differs per device. The usual sequence is: join the OTA AP → erase the inactive slot → download firmware → verify MD5 → switch slots and reboot. Keep power connected until the whole process completes.
-
-After a successful first boot, the open AP **`TC1_A1-AP-<last six MAC chars in uppercase>`** appears. Join it with a computer or phone and open **`http://192.168.0.1`** in a browser to continue setup in the community firmware's local web UI.
-
-### 5. Confirm success and restore your network
-
-Check the stock identity and complete TFTP transfer, then join the new firmware hotspot and confirm the migration version in its local WebUI.
-
-Configure normal Wi-Fi, then select **TC1 → latest compatible stable release → Full → Signed OTA** in [Firmware & resources]({{SITE_URL}}en/#releases). Download `phicomm_tc1_a1.ota.bin.signed` and that release's `SHA256SUMS`. Verify the digest, upload through the device's firmware update page and keep power connected. After reboot, reopen the WebUI and check the new version, six outlet names and settings. See [Firmware updates](firmware-update); do not send the stock trigger again.
-
-Once the new firmware works, shut down the temporary OTA AP and TFTP service and restore the interface addresses and firewall rules changed for flashing. If you created temporary interfaces and dnsmasq TFTP settings on OpenWrt / ImmortalWrt, remove those settings and restore the original network.
+Other versions and other builds cannot reuse these addresses. Adapting a new version means obtaining that version's application-slot image first (a full SWD read, or a stock OTA package) and re-locating the vulnerable function and `tftp_ota`; guessing address offsets does not work. Writing the image directly over J-Link is independent of the stock version, see [wired installation and recovery](tc1-flash).
 
 ## Common problems
 
