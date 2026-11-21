@@ -24,7 +24,7 @@
 
 NAME := App_TC1
 
-$(NAME)_SOURCES := http_trace.c memory_diag.c\
+$(NAME)_SOURCES := http_trace.c memory_diag.c rx_watch.c\
                    main.c status_guard.c\
                    service.c control.c wire.c lan.c\
                    ota_signature.c\

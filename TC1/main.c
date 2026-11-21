@@ -10,6 +10,7 @@ bool app_config_persist_allowed(void) { return !config_recovery && !config_commi
 #include "ota_server/signed_adapter.h"
 #include "main.h"
 #include "status_guard.h"
+#include "memory_diag.h"
 #include "lan.h"
 #include "../common/ota/mode.h"
 #include "config_legacy.h"
@@ -285,6 +286,10 @@ int application_start(void) {
                                   (mico_thread_function_t) schedule_p_count_task,
                                   0x800, 0);
     require_noerr_string(err, exit, "ERROR: Unable to start the p_count thread.");
+
+    /* Diagnostic build only: record RX allocation lifetime so a packet that is
+     * never delivered/freed is observed instead of inferred. */
+    tc1_rx_watch_start();
 
     while (1) {
         ota_job_poll();
