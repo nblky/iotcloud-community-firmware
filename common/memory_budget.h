@@ -9,7 +9,9 @@
  * Core/network headroom is a soft floor, not a closed-SDK heap partition. */
 /* MiCO release_log also defines DEBUG; product makefiles select this policy
  * from BUILD_TYPE rather than the compiler's logging/assertion switches. */
-#if defined(PHICOMM_EMW3080_RELEASE_MEMORY) && PHICOMM_EMW3080_RELEASE_MEMORY
+#if defined(PHICOMM_TC1_MEMORY) && PHICOMM_TC1_MEMORY
+#define SERVICE_MEMORY_RESERVE 8192u
+#elif defined(PHICOMM_EMW3080_RELEASE_MEMORY) && PHICOMM_EMW3080_RELEASE_MEMORY
 #define SERVICE_MEMORY_RESERVE 8192u
 #else
 #define SERVICE_MEMORY_RESERVE 16384u
