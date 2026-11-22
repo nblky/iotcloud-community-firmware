@@ -2,9 +2,9 @@
 
 Features, fixes and upgrade requirements for each release.
 
-## v1.0.0-rc.8
+## v1.0.0-rc.9
 
-**RC8 is a release candidate that fixes the temporary MQTT certificate used by the Daikin G3 wireless migration tool and updates the tutorial. Back up configuration and select the matching model and variant.**
+**RC9 is a release candidate that fixes the temporary MQTT certificate used by the Daikin G3 wireless migration tool and updates the tutorial. Back up configuration and select the matching model and variant.**
 
 ### Daikin G3 wireless migration certificate
 

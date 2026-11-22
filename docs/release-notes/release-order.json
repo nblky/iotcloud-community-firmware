@@ -210,6 +210,12 @@
       "previous": "1.0.0-rc.6",
       "branch": "main",
       "channel": "candidate"
+    },
+    {
+      "version": "1.0.0-rc.9",
+      "previous": "1.0.0-rc.7",
+      "branch": "main",
+      "channel": "candidate"
     }
   ]
 }
