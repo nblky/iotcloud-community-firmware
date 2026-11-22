@@ -346,7 +346,7 @@ Before starting, confirm each item:
 - Use the ordinary `daikin_G3_screen.bin` from that same release. Its size must be **421888 bytes**. Do not upload `.all.bin`, an ESP32 `.ota.bin`, `recovery.bin`, an archive, or an image for another generation.
 - The screen MCU must be responding and the device must remain on stable USB power. If startup controls are unavailable, refresh the status and check that the screen MCU is online; use J-Link when it remains offline instead of retrying uploads.
 
-Windows, Linux and macOS share these steps. Install the paired community ESP32 first, keep USB power connected and **open the device IP directly** in a LAN browser. Go to **Settings → Screen → Resources and update**. First installation from stock and later community updates use the same entry.
+After these checks, keep USB power connected and **open the device IP directly** in a LAN browser. Go to **Settings → Screen → Resources and update**. First installation from stock and later community updates use the same entry.
 
 | Method | Steps |
 | --- | --- |
