@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "lan.h"
 #include "main.h"
+#include "user_wifi.h"
 #include "mico_system.h"
 #include <ctype.h>
 #include <stdio.h>
@@ -31,6 +32,7 @@ static void tc1_lan_worker(mico_thread_arg_t arg)
     for(;;){
         mico_rtos_lock_mutex(&tc1_lan_lock);bool stop=tc1_lan_stop_requested;mico_rtos_unlock_mutex(&tc1_lan_lock);
         if(stop)break;
+        lan_business_network_ready(wifi_status == WIFI_STATE_CONNECTED);
         lan_business_poll();fd_set fds;FD_ZERO(&fds);FD_SET(udp,&fds);struct timeval wait={0,100000};
         if(select(udp+1,&fds,NULL,NULL,&wait)<=0)continue;
         struct sockaddr_in from;socklen_t length=sizeof(from);

@@ -224,6 +224,7 @@ static bool install_config(feature_config_t *c) {
 #include "lan_client_adapter.inc"
 #include "lan_sensor.inc"
 #include "runtime_lan_business.inc"
+void feature_network_ready(bool ready){lan_business_network_ready(ready);}
 #include "feature_mp.h"
 #include "group_mp.inc"
 #ifndef FEATURE_DEVICE_A1
@@ -835,18 +836,22 @@ static void feature_worker(mico_thread_arg_t arg) {
     mico_rtos_lock_mutex(&a1_lock);
     state.mqtt_connected=a1_state.mqtt_connected;memcpy(state.ip,a1_state.ip,sizeof(state.ip));
     mico_rtos_unlock_mutex(&a1_lock);
+    feature_network_ready(state.ip[0] != '\0');
 
 #else
     struct {
       m1_sample_t sample;
+      bool wifi_connected;
       struct { bool ready, received; uint16_t co2_ppm; uint32_t updated_ms, samples; } scd40;
     } state;
     mico_rtos_lock_mutex(&m1_lock);
+    state.wifi_connected=m1_state.wifi_connected;
     state.sample=m1_state.sample;
     state.scd40.ready=m1_state.scd40.ready;state.scd40.received=m1_state.scd40.received;
     state.scd40.co2_ppm=m1_state.scd40.co2_ppm;state.scd40.updated_ms=m1_state.scd40.updated_ms;
     state.scd40.samples=m1_state.scd40.samples;
     mico_rtos_unlock_mutex(&m1_lock);
+    feature_network_ready(state.wifi_connected);
     feature_sample_t local;
     memset(&local, 0, sizeof(local));
     local.value[0] = state.sample.temperature_deci_c / 10.0f;
@@ -1230,9 +1235,12 @@ static bool discovery_virtual_step(int (*publish)(const char *, const void *, si
         if(publish(path,"",0,true))return false;
         *cursor=position+1;return *cursor==sets*11;
       }
-      /* Only HA uses JSON. Fixed owner scratch replaces the full DOM library. */
-      static char discovery_wire[5120];ha_json writer;ha_json *o=&writer;
-      ha_json_init(o,discovery_wire,sizeof(discovery_wire));ha_json_begin(o,NULL,false);
+      /* Only HA uses JSON. Allocate owner scratch for this publication and
+       * release it before the next owner turn; it must not consume SRAM at boot. */
+      char *discovery_wire=malloc(5120);
+      if(!discovery_wire){discovery_resource_wait();return false;}
+      ha_json writer;ha_json *o=&writer;
+      ha_json_init(o,discovery_wire,5120);ha_json_begin(o,NULL,false);
       ha_json_begin(o,"device",false);ha_json_begin(o,"identifiers",true);ha_json_string(o,NULL,device_id);ha_json_end(o);
       ha_json_string(o,"name",device_name);ha_json_string(o,"manufacturer","Phicomm");ha_json_string(o,"model","A1 Air Purifier (EMW3080B)");ha_json_end(o);
       ha_json_string(o, "unique_id", uid);
@@ -1296,8 +1304,9 @@ static bool discovery_virtual_step(int (*publish)(const char *, const void *, si
       ha_json_end(o);
       ha_json_string(o, "availability_mode", "any");
       ha_json_end(o);
-      if(!ha_json_done(o)){publish_error=PH_MQTT_ERROR_APP_DISCOVERY_GRAPH;return false;}
+      if(!ha_json_done(o)){free(discovery_wire);publish_error=PH_MQTT_ERROR_APP_DISCOVERY_GRAPH;return false;}
       int rc=publish(path,o->data,o->length,true);
+      free(discovery_wire);
       if(rc) {
         if(rc==PH_MQTT_MORE && !publish_error)discovery_resource_wait();
         else publish_error=rc;
