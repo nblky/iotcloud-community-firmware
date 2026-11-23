@@ -8,6 +8,10 @@
 #include "bonjour_lan.inc"
 extern bool feature_lan_context(const char *,const uint8_t[16],ph_auth_context *);
 static lan_v4_server lan_business;
+/* Station Bonjour is a post-association service. Keep its lifecycle separate
+ * from the UDP owner so the provisioning SoftAP does not pay for mDNS. */
+static const char *lan_business_model, *lan_business_version;
+static bool lan_business_network_up, lan_business_bonjour_started;
 static uint32_t lan_business_now(void *user){(void)user;return mico_rtos_get_time();}
 static bool lan_business_authorize(void *user,const char *peer,const uint8_t token[16],ph_auth_context *ctx)
 {(void)user;return feature_lan_context(peer,token,ctx)&&!strcmp(ctx->peer,peer);}
@@ -40,7 +44,20 @@ static bool lan_business_input(const ph_value *root,const char *ip,uint16_t port
 static void lan_business_start(uint32_t boot,const char *model,const char *version)
 {
     lan_business_ops.boot=boot?boot:1;
-    if(udp>=0)bonjour_lan_start(LOCAL_ID,model,PHICOMM_FIRMWARE_VARIANT,version);
+    lan_business_model=model;lan_business_version=version;
+    if(lan_business_network_up && udp>=0 && !lan_business_bonjour_started)
+        lan_business_bonjour_started=bonjour_lan_start(LOCAL_ID,model,PHICOMM_FIRMWARE_VARIANT,version);
+}
+static void lan_business_network_ready(bool ready)
+{
+    lan_business_network_up=ready;
+    if(!ready){
+        if(lan_business_bonjour_started)bonjour_lan_stop();
+        lan_business_bonjour_started=false;
+        return;
+    }
+    if(udp>=0 && lan_business_model && !lan_business_bonjour_started)
+        lan_business_bonjour_started=bonjour_lan_start(LOCAL_ID,lan_business_model,PHICOMM_FIRMWARE_VARIANT,lan_business_version);
 }
 static void lan_business_poll(void){lan_v4_server_expire(&lan_business,&lan_business_ops);}
-static void lan_business_stop(void){bonjour_lan_stop();lan_v4_server_release(&lan_business);}
+static void lan_business_stop(void){lan_business_network_ready(false);lan_business_model=NULL;lan_business_version=NULL;lan_v4_server_release(&lan_business);}

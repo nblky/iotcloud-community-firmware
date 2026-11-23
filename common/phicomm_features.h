@@ -167,6 +167,8 @@ void feature_config_get(feature_config_t *);
 uint32_t feature_config_revision(void);
 bool feature_config_save(const feature_config_t *);
 OSStatus feature_start(void);
+/* Starts/resumes Station mDNS only after the product has a verified STA IP. */
+void feature_network_ready(bool ready);
 
 void feature_values_snapshot(feature_values_t *);
 
