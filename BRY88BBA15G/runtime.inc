@@ -590,6 +590,39 @@ static void screenCommand(const uint8_t *p, size_t n, size_t payloadAt,
   else
     screenReply(cmd, false, 0x70);
 }
+static void screenGatewayInit() {
+  // The existing stock association is retained only as a local compatibility
+  // ID. It is not a claim that this MCU is associated with an HVAC gateway.
+  // The stock MCU asks for gateway_mac before its factory OTA handshake.
+  // Preserve a provisioned NVS identity; otherwise use the same locally
+  // administered virtual gateway MAC as the migration responder.
+  // This is a local compatibility identity, not a real HVAC hub association.
+  screenGateway = SCREEN_DEFAULT_GATEWAY;
+  screenGatewaySource = "fallback";
+  nvs_handle_t handle;
+  uint8_t gateway[6] = {};
+  size_t length = sizeof(gateway);
+  if (nvs_open("sensor3", NVS_READONLY, &handle) == ESP_OK) {
+    esp_err_t gatewayErr = nvs_get_blob(handle, "ipbox_mac", gateway, &length);
+    bool nonzero = false, allFF = true;
+    for (unsigned i = 0; i < sizeof(gateway); ++i) {
+      nonzero = nonzero || gateway[i] != 0;
+      allFF = allFF && gateway[i] == 0xFF;
+    }
+    // Accept only a six-byte, nonzero, unicast MAC from NVS.
+    if (gatewayErr == ESP_OK && length == sizeof(gateway) &&
+        nonzero && !allFF && !(gateway[0] & 0x01)) {
+      char text[13];
+      snprintf(text, sizeof(text), "%02X%02X%02X%02X%02X%02X", gateway[0],
+               gateway[1], gateway[2], gateway[3], gateway[4], gateway[5]);
+      screenGateway = text;
+      screenGatewaySource = "nvs";
+    }
+    nvs_close(handle);
+  }
+  Serial.printf("[G3-GW] gateway MAC=%s source=%s\n",
+                screenGateway.c_str(), screenGatewaySource);
+}
 static void screenInit() {
   screenUart.setRxBufferSize(8192);
   screenUart.setTxBufferSize(2048);
@@ -627,37 +660,7 @@ static void screenInit() {
       config = std::move(imported);
     }
   }
-  // The existing stock association is retained only as a local compatibility
-  // ID. It is not a claim that this MCU is associated with an HVAC gateway.
-  // The stock MCU asks for gateway_mac before its factory OTA handshake.
-  // Preserve a provisioned NVS identity; otherwise use the same locally
-  // administered virtual gateway MAC as the migration responder.
-  // This is a local compatibility identity, not a real HVAC hub association.
-  screenGateway = SCREEN_DEFAULT_GATEWAY;
-  screenGatewaySource = "fallback";
-  nvs_handle_t handle;
-  size_t length = sizeof(uint8_t) * 6;
-  uint8_t gateway[6] = {};
-  if (nvs_open("sensor3", NVS_READONLY, &handle) == ESP_OK) {
-    esp_err_t gatewayErr = nvs_get_blob(handle, "ipbox_mac", gateway, &length);
-    bool nonzero = false, allFF = true;
-    for (unsigned i = 0; i < sizeof(gateway); ++i) {
-      nonzero = nonzero || gateway[i] != 0;
-      allFF = allFF && gateway[i] == 0xFF;
-    }
-    // Accept only a six-byte, nonzero, unicast MAC from NVS.
-    if (gatewayErr == ESP_OK && length == sizeof(gateway) &&
-        nonzero && !allFF && !(gateway[0] & 0x01)) {
-      char text[13];
-      snprintf(text, sizeof(text), "%02X%02X%02X%02X%02X%02X", gateway[0],
-               gateway[1], gateway[2], gateway[3], gateway[4], gateway[5]);
-      screenGateway = text;
-      screenGatewaySource = "nvs";
-    }
-    nvs_close(handle);
-  }
-  Serial.printf("[G3-GW] gateway MAC=%s source=%s\\n",
-                screenGateway.c_str(), screenGatewaySource);
+  screenGatewayInit();
   screenServicesInit();
   screenSend("\r\n+screen_link_reset:1\r\n");
   Serial.printf("screen UART1 RX17 TX16 initialized; firmware %s\n", version);
