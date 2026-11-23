@@ -11,6 +11,7 @@ add_test(NAME bridge COMMAND test_bridge)
 # Optional integration test uses the independently checked-out screen project.
 set(SCREEN_MCU_SOURCE "" CACHE PATH "Independent screen repository for integration test")
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME gateway_owner COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_gateway_owner.py)
 execute_process(COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_protocol.py ${SCREEN_MCU_SOURCE}
  RESULT_VARIABLE PROTOCOL_ERROR)
 if(PROTOCOL_ERROR)
