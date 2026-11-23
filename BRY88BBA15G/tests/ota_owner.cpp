@@ -89,6 +89,8 @@ struct ScreenImage {
   bool valid = false, active = false, pending = false, bootstrap = false;
   uint32_t features = 0;
   uint32_t size = 0, offset = 0, chunk = 0, deadline = 0;
+  uint32_t bootstrap_token = 0, bootstrap_retry_at = 0;
+  uint8_t bootstrap_attempts = 0;
   uint8_t md5[16] = {}, sha[32] = {};
   const char *state = "empty";
 };
@@ -218,11 +220,25 @@ static void testUpdateStart() {
   screenQueue[1].wire = "old-clock";
   assert(!strcmp(screenUpdateStart(params), "accepted"));
   assert(deliveries == 1 && screenImage.active && screenImage.bootstrap);
+  assert(screenImage.bootstrap_attempts == 1);
+  uint32_t updateStartAt = testMillis;
+  testMillis += 4999;
+  screenBootstrapPoll(testMillis);
+  assert(deliveries == 1 && screenImage.bootstrap_attempts == 1);
+  testMillis++;
+  screenBootstrapPoll(testMillis);
+  assert(deliveries == 2 && screenImage.bootstrap_attempts == 2);
+  /* A bin_summary response moves the owner forward and suppresses retries. */
+  screenImage.state = "waiting_for_start";
+  testMillis += 10000;
+  screenBootstrapPoll(testMillis);
+  assert(deliveries == 2);
+  testMillis = updateStartAt;
   assert(screenHead == screenTail && !screenQueue[0].wire.length());
   screenImage.active = false;
   params["sha256"] = "wrong-digest";
   assert(!strcmp(screenUpdateStart(params), "invalid_firmware"));
-  assert(deliveries == 1 && !screenImage.active);
+  assert(deliveries == 2 && !screenImage.active);
   params["sha256"] = screenHex(screenImage.sha, 32);
   lockAvailable = false;
   assert(!strcmp(screenUpdateStart(params), "busy"));

@@ -73,6 +73,8 @@ struct ScreenImage {
   bool valid = false, active = false, pending = false, bootstrap = false;
   uint32_t features = 0;
   uint32_t size = 0, offset = 0, chunk = 0, deadline = 0;
+  uint32_t bootstrap_token = 0, bootstrap_retry_at = 0;
+  uint8_t bootstrap_attempts = 0;
   uint8_t md5[16] = {}, sha[32] = {};
   const char *state = "empty";
 };
@@ -680,6 +682,7 @@ static void screenServicesPoll(uint32_t now) {
     screenGuard.state = "timeout";
     invalidateBusinessStatusCache();
   }
+  screenBootstrapPoll(now);
   if (screenImage.active && (int32_t)(now - screenImage.deadline) >= 0) {
     screenImage.active = false;
     screenImage.pending = false;
