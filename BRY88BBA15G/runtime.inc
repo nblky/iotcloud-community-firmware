@@ -100,6 +100,8 @@ static uint32_t screenLastRx = 0, screenFrames = 0, screenDataAt = 0,
                 screenNextSnapshot = 0, screenSnapshotAt = 0;
 static String screenMcuVersion, screenGalleryVersion, screenGateway;
 static bool screenSession = false, screenProvisioning = false;
+static const char *screenGatewaySource = "fallback";
+static constexpr const char *SCREEN_DEFAULT_GATEWAY = "020000000001";
 static uint8_t screenRaw[64];
 static size_t screenRawSize = 0;
 struct ScreenMessage {
@@ -224,6 +226,8 @@ static void screenStatus(JsonObject out) {
   s["upstream_connected"] = mqttConnected;
   s["ble_provisioning_supported"] = false;
   s["gateway_binding"] = "local_compatibility_only";
+  s["gateway_mac"] = screenGateway;
+  s["gateway_mac_source"] = screenGatewaySource;
   s["weather_available"] = false;
   screenServicesStatus(s);
   s["settings"] = screenSnapshot["setting"];
@@ -466,10 +470,9 @@ static void screenCommand(const uint8_t *p, size_t n, size_t payloadAt,
   } else if (cmd == "version?")
     screenSend("+version:" + String(BRY_UART_VERSION) + "\r\n");
   else if (cmd == "gateway_mac?") {
-    if (screenGateway.length() == 12)
-      screenSend("+gateway_mac:" + screenGateway + "\r\n");
-    else
-      screenReply("gateway_mac");
+    // Always answer with the configured or deterministic local compatibility
+    // identity; an empty-MAC "OK" response leaves stock MCU provisioning stuck.
+    screenSend("+gateway_mac:" + screenGateway + "\r\n");
   } else if (cmd == "wifi_state?")
     screenSend("+wifi_state:" + String(WiFi.status() == WL_CONNECTED ? 2 : 0) +
                "," + String(WiFi.RSSI()) + "\r\n");
@@ -626,19 +629,35 @@ static void screenInit() {
   }
   // The existing stock association is retained only as a local compatibility
   // ID. It is not a claim that this MCU is associated with an HVAC gateway.
+  // The stock MCU asks for gateway_mac before its factory OTA handshake.
+  // Preserve a provisioned NVS identity; otherwise use the same locally
+  // administered virtual gateway MAC as the migration responder.
+  // This is a local compatibility identity, not a real HVAC hub association.
+  screenGateway = SCREEN_DEFAULT_GATEWAY;
+  screenGatewaySource = "fallback";
   nvs_handle_t handle;
-  size_t length = 6;
+  size_t length = sizeof(uint8_t) * 6;
   uint8_t gateway[6] = {};
   if (nvs_open("sensor3", NVS_READONLY, &handle) == ESP_OK) {
-    if (nvs_get_blob(handle, "ipbox_mac", gateway, &length) == ESP_OK &&
-        length == 6) {
+    esp_err_t gatewayErr = nvs_get_blob(handle, "ipbox_mac", gateway, &length);
+    bool nonzero = false, allFF = true;
+    for (unsigned i = 0; i < sizeof(gateway); ++i) {
+      nonzero = nonzero || gateway[i] != 0;
+      allFF = allFF && gateway[i] == 0xFF;
+    }
+    // Accept only a six-byte, nonzero, unicast MAC from NVS.
+    if (gatewayErr == ESP_OK && length == sizeof(gateway) &&
+        nonzero && !allFF && !(gateway[0] & 0x01)) {
       char text[13];
       snprintf(text, sizeof(text), "%02X%02X%02X%02X%02X%02X", gateway[0],
                gateway[1], gateway[2], gateway[3], gateway[4], gateway[5]);
       screenGateway = text;
+      screenGatewaySource = "nvs";
     }
     nvs_close(handle);
   }
+  Serial.printf("[G3-GW] gateway MAC=%s source=%s\\n",
+                screenGateway.c_str(), screenGatewaySource);
   screenServicesInit();
   screenSend("\r\n+screen_link_reset:1\r\n");
   Serial.printf("screen UART1 RX17 TX16 initialized; firmware %s\n", version);
