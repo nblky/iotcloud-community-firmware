@@ -107,6 +107,8 @@ static bool bry_bridge_send(void *,const void *,size_t,unsigned){return true;}
 static DynamicJsonDocument screenSnapshot(4096);
 static uint32_t screenSnapshotAt=0,screenFrames=0,screenLastRx=0,screenDataAt=0;
 static String screenMcuVersion("iotcloud-screen-test"),screenGalleryVersion("iotcloud-built-in"),screenPendingToken;
+static String screenGateway("020000000001");
+static const char *screenGatewaySource="fallback";
 static bool screenSession=true;
 static int screenPendingCode=0;
 static uint32_t screenPendingAt=0;
@@ -345,6 +347,8 @@ int main(){
  assert(!doc.containsKey("free_memory")&&!doc.containsKey("ota_partitions"));
 #ifdef IOTCLOUD_BRY88_SCREEN
  assert(!doc.containsKey("co2_diagnostics"));
+ assert(doc["screen"]["gateway_mac"]=="020000000001");
+ assert(doc["screen"]["gateway_mac_source"]=="fallback");
 #else
  assert(doc["co2_diagnostics"]["calibration"].is<JsonObject>());
 #endif
