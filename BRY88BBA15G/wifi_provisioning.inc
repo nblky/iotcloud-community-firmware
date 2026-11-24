@@ -1,10 +1,11 @@
-enum class G3WifiSetup { Idle, Waiting, Queued, Trial, Rollback };
+enum class G3WifiSetup { Idle, Waiting, Queued, Trial, Handoff, Rollback };
 static G3WifiSetup g3WifiSetup = G3WifiSetup::Idle;
 static uint32_t g3WifiDeadline = 0;
 static bool g3SawProvisionRequest = false;
 static uint32_t g3LastProvisionRequest = 0;
 static char g3TrialSsid[33] = {}, g3TrialPassword[64] = {};
 static const char *g3WifiTrialStatus = "idle";
+static unsigned g3WifiTrialId = 0;
 
 static bool g3WifiTrialActive() {
   return g3WifiSetup == G3WifiSetup::Queued || g3WifiSetup == G3WifiSetup::Trial;
@@ -30,11 +31,14 @@ static void startG3WifiProvisioning(uint32_t now) {
 }
 
 static bool queueG3WifiTrial(const char *ssid, const char *password) {
-  if (g3WifiTrialActive() || g3WifiSetup == G3WifiSetup::Rollback || g3WifiWorkBusy())
+  if (g3WifiTrialActive() || g3WifiSetup == G3WifiSetup::Handoff ||
+      g3WifiSetup == G3WifiSetup::Rollback || g3WifiWorkBusy())
     return false;
   strlcpy(g3TrialSsid, ssid, sizeof(g3TrialSsid));
   strlcpy(g3TrialPassword, password, sizeof(g3TrialPassword));
   g3WifiSetup = G3WifiSetup::Queued;
+  if (!++g3WifiTrialId)
+    ++g3WifiTrialId;
   g3WifiTrialStatus = "pending";
   requestBusinessStatusRefresh();
   return true;
@@ -66,11 +70,13 @@ static void closeG3SetupAccessPoint() {
 static void pollG3WifiProvisioning(uint32_t now) {
   if (g3WifiSetup == G3WifiSetup::Idle)
     return;
-  if (g3WifiSetup == G3WifiSetup::Rollback) {
+  const bool rollingBack = g3WifiSetup == G3WifiSetup::Rollback;
+  if (g3WifiSetup == G3WifiSetup::Handoff || rollingBack) {
     if (due(now, g3WifiDeadline)) {
       g3WifiSetup = G3WifiSetup::Idle;
       closeG3SetupAccessPoint();
-      startWifi();
+      if (rollingBack)
+        startWifi();
       requestBusinessStatusRefresh();
     }
     return;
@@ -103,9 +109,11 @@ static void pollG3WifiProvisioning(uint32_t now) {
   const bool storageFailed = verified || g3WifiSetup == G3WifiSetup::Queued;
   g3WifiTrialStatus = saved ? "success" : storageFailed ? "storage_failure" : "timeout_rollback";
   clearG3WifiTrial();
-  if (saved) {
-    closeG3SetupAccessPoint();
-  } else {
+  if (saved && (WiFi.getMode() & WIFI_AP)) {
+    // Give the setup page a brief window to receive the new station address.
+    g3WifiSetup = G3WifiSetup::Handoff;
+    g3WifiDeadline = millis() + 4000;
+  } else if (!saved) {
     WiFi.disconnect(false, false);
     if (hadTrial && !g3NeedsProvisioning() && (WiFi.getMode() & WIFI_AP)) {
       // Deliver the failed result over the hotspot before restoring the old link.

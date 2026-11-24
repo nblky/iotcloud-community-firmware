@@ -29,6 +29,7 @@ class G3WifiRecovery(unittest.TestCase):
         production += '\n' + function(main, 'static bool g3WifiWorkBusy() {')
         production += '\n' + function(main, 'static void pollG3StationRetry(')
         production += '\n' + function(main, 'static void pollWifi(')
+        production += '\n' + function(ROOT / 'BRY88BBA15G/wifi_portal.inc', 'static size_t g3PortalDnsReply(')
         runtime = ROOT / 'BRY88BBA15G/runtime.inc'
         command = function(runtime, 'static void screenCommand(')
         token = command[command.index('  size_t end = 0;'):command.index('  // The maintenance receiver')]
@@ -245,7 +246,7 @@ int main() {
     poll(deadline);
     assert(WiFi.getMode() == WIFI_STA && WiFi.attemptedSsid == "saved-network" && WiFi.attempts == 7);
 
-    // Commit and close the setup AP only after DHCP on the new network.
+    // Commit only after DHCP on the new network then hand its IP to the page.
     associateStation("saved-network");
     gotIp();
     poll(deadline + 1000);
@@ -263,12 +264,16 @@ int main() {
     poll(timeMs + 10);
     assert(saves == 1 && !std::strcmp(config.ssid, "new-network") &&
            !std::strcmp(g3WifiTrialStatus, "success") && driverStorage == WIFI_STORAGE_FLASH);
-    const uint32_t connectedAt = timeMs;
+    const uint32_t handoff = g3WifiDeadline;
+    poll(handoff - 1);
     pressNetworkKey("ble_cfg 1800");
-    assert(WiFi.getMode() == WIFI_STA && recoveryApStarts == 2 && g3TrialPassword[0] == 0);
+    assert(WiFi.getMode() == WIFI_AP_STA && g3TrialPassword[0] == 0);
+    poll(handoff);
+    pressNetworkKey("ble_cfg 1800");
+    assert(WiFi.getMode() == WIFI_STA && recoveryApStarts == 2);
 
     // An unrelated DHCP result or storage failure restores the prior connection.
-    timeMs = connectedAt + 6000;
+    timeMs = handoff + 6000;
     pressNetworkKey("ble_cfg");
     assert(queueG3WifiTrial("bad-network", "bad-password"));
     poll(timeMs + 100);
@@ -314,6 +319,18 @@ int main() {
     assert(WiFi.attempts == attempts);
     poll(14899);
     assert(WiFi.attempts == attempts + 1);
+
+    uint8_t dns[512] = {0xab,0xcd,1,0,0,1,0,0,0,0,0,0,1,'x',0,0,1,0,1};
+    assert(g3PortalDnsReply(dns, 18, sizeof(dns)) == 0);
+    assert(g3PortalDnsReply(dns, 19, sizeof(dns)) == 35);
+    assert(dns[0] == 0xab && dns[1] == 0xcd && dns[7] == 1 &&
+           dns[31] == 192 && dns[32] == 168 && dns[33] == 0 && dns[34] == 1);
+    dns[2] = 1;
+    dns[16] = 28;
+    assert(g3PortalDnsReply(dns, 19, sizeof(dns)) == 19 && dns[7] == 0);
+    dns[2] = 1;
+    dns[12] = 0xc0;
+    assert(g3PortalDnsReply(dns, 19, sizeof(dns)) == 0);
 }
 '''
         with tempfile.TemporaryDirectory() as directory:

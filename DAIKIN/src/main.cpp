@@ -8,6 +8,7 @@
 #ifdef IOTCLOUD_BRY88_SCREEN
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include <lwip/sockets.h>
 #endif
 #include <Wire.h>
 #include <Preferences.h>
@@ -284,6 +285,7 @@ static void startWifi(){
 static bool g3OnlineBusy=false;
 static bool g3WifiWorkBusy();
 #include "../../BRY88BBA15G/wifi_provisioning.inc"
+#include "../../BRY88BBA15G/wifi_portal.inc"
 #include "../../BRY88BBA15G/runtime.inc"
 #include "../../BRY88BBA15G/screen_services.inc"
 #else
@@ -464,6 +466,9 @@ void setup(){
 #endif
   if(httpd_start(&web,&server)==ESP_OK){
     httpd_uri_t root={};root.uri="/";root.method=HTTP_GET;root.handler=rootHandler;httpd_register_uri_handler(web,&root);
+#ifdef IOTCLOUD_BRY88_SCREEN
+    httpd_register_err_handler(web, HTTPD_404_NOT_FOUND, g3WifiPortalRedirect);
+#endif
     httpd_uri_t info={};info.uri="/api/v1/info";info.method=HTTP_GET;info.handler=infoHandler;httpd_register_uri_handler(web,&info);
     for(auto path:{"/api/v1/auth/login","/api/v1/auth/logout"}){httpd_uri_t auth={};auth.uri=path;auth.method=HTTP_POST;auth.handler=strstr(path,"logout")?logoutHandler:loginHandler;httpd_register_uri_handler(web,&auth);}
     httpd_uri_t status={};status.uri="/api/v1/status";status.method=HTTP_GET;status.handler=statusHandler;httpd_register_uri_handler(web,&status);
@@ -548,6 +553,9 @@ void loop(){
   if(wifiRestart){wifiRestart=false;startWifi();}
   pollIndicators(now);
   pollWifi(millis());
+#ifdef IOTCLOUD_BRY88_SCREEN
+  pollG3PortalDns(millis());
+#endif
   #ifdef IOTCLOUD_HUB
   pollHome(millis());
   #endif

@@ -49,6 +49,7 @@ static void buildBusinessState(JsonObject out,uint32_t now){
 #ifdef IOTCLOUD_BRY88_SCREEN
   out["wifi_trial_active"] = g3WifiTrialActive();
   out["wifi_trial_status"] = g3WifiTrialStatus;
+  out["wifi_trial_id"] = g3WifiTrialId;
 #endif
   out["web_password_set"]=strlen(config["auth"]["password"]|"")>0;
   out["mqtt_host"]=config["mqtt"]["host"]|"";out["mqtt_port"]=config["mqtt"]["port"]|1883;
@@ -488,7 +489,10 @@ static String execute(const String &body,bool binary=true){
 #ifdef IOTCLOUD_BRY88_SCREEN
       else if(section=="wifi"){
         const char *password = values["password"] | (config["wifi"]["password"] | "");
-        code = queueG3WifiTrial(values["ssid"].as<const char *>(), password) ? "accepted" : "busy";
+        if (queueG3WifiTrial(values["ssid"].as<const char *>(), password)) {
+          code = "accepted";
+          data["wifi_trial_id"] = g3WifiTrialId;
+        } else code = "busy";
       }
 #endif
       else{
